@@ -1,0 +1,24 @@
+This is an idea for the layout of seis_tools:
+
+ses3d:
+	seismograms
+	receiver_functions
+        record_section
+	rotate_setup
+
+axisem:
+	seismograms
+	record_section
+
+decon:
+	water_level
+	damped_lstsq
+	pulse_stripping
+
+velocity_conversion:
+	read
+	write_ses3d
+	write_axisem_sph
+
+seispy:
+       various tools for plotting and manipulating obspy streams
