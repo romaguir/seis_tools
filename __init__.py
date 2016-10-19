@@ -4,3 +4,4 @@ import decon
 import seispy
 import models
 import synth_tomo
+import specfem

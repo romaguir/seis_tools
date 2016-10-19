@@ -904,3 +904,95 @@ def zero_phase(tr,phase,rf_window=[-10,120],**kwargs):
       if zero_window_start_index >= len(tr.data):
          print "PP arrives outside the receiver function window"
 
+##############################################################################
+def get_deltaT_from_deltaZ(boundary,deflection):
+##############################################################################
+   '''
+   Function to estimate thermal anomaly based on deflections of the 410 or 660.
+   Uses published values of Clapeyron slopes from several experimental studies,
+   and ouputs a range of possible temperature anomalies.
+
+   args--------------------------------------------------------------------------
+   boundary: either 410 or 660
+   deflection: boundary perturbation in km.  positive is a downward deflection,
+               negative is an upward deflection.
+   '''
+   from seis_tools.models import models_1d
+
+   prem = models_1d.prem()
+   Clap410 = {'Katsura 2004':np.array([3.6,4.0]),
+              'Katsura and Ito 1989':np.array([2.5])} #MPa/K
+   Clap660 = {'Katsura 2003':np.array([-0.4,-1.0,-2.0]),
+              'Ye 2014':np.array([-2.1,-2.5,-2.9])} #MPa/K
+
+   deltaZ = deflection*1000.0 #convert kilometers to meters
+   g = 9.82 
+
+   if boundary==410:
+       rho_gcm3 = prem.get_rho(410)
+       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+       layer_weight = (rho_kgm3 * g * deltaZ) / 1e6 #pressure in MPa
+
+       keys = Clap410.keys()
+       for key in keys:
+          deltaT = layer_weight / Clap410[key]
+          #deltaT = Clap410[key]*layer_weight
+          print 'Delta T from ', key, 'using Clapyeron slopes of ', Clap410[key], ': ',deltaT
+
+   elif boundary==660:
+       rho_gcm3 = prem.get_rho(660)
+       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+       layer_weight = (rho_kgm3 * g * deltaZ) / 1e6 #pressure in MPa
+
+       keys = Clap660.keys()
+       for key in keys:
+          deltaT = layer_weight / Clap660[key]
+          #deltaT = Clap660[key] * layer_weight
+          print 'Delta T from ', key, 'using Clapyeron slopes of ', Clap660[key], ': ',deltaT
+
+   else:
+       raise ValueError('boundary ', boundary, 'not recognized')
+
+##############################################################################
+def get_deltaZ_from_deltaT(boundary,deltaT):
+##############################################################################
+   '''
+   Function to estimate the deflections of 410 or 660 based on a given thermal
+   anomaly.  Uses published values of Clapeyron slopes from several experimental 
+   studies, and ouputs a range of possible boundary deflections.
+
+   args--------------------------------------------------------------------------
+   boundary: either 410 or 660
+   deltaT: temperature anomaly (C)
+   '''
+   from seis_tools.models import models_1d
+
+   prem = models_1d.prem()
+   Clap410 = {'Katsura 2004':np.array([3.6,4.0]),
+              'Katsura and Ito 1989':np.array([2.5])} #MPa/K
+   Clap660 = {'Katsura 2003':np.array([-0.4,-1.0,-2.0]),
+              'Ye 2014':np.array([-2.1,-2.5,-2.9])} #MPa/K
+
+   g = 9.82 
+
+   if boundary==410:
+       rho_gcm3 = prem.get_rho(410)
+       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+
+       keys = Clap410.keys()
+       for key in keys:
+          MPa = Clap410[key] * deltaT
+          km_per_MPa = 1000.0/(rho_kgm3*g)
+          deltaZ = MPa * km_per_MPa
+          print 'Delta Z from ', key, 'using Clapyeron slopes of ', Clap410[key], 'MPa/K : ',deltaZ, 'km'
+
+   elif boundary==660:
+       rho_gcm3 = prem.get_rho(660)
+       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+
+       keys = Clap660.keys()
+       for key in keys:
+          MPa = Clap660[key] * deltaT
+          km_per_MPa = 1000.0/(rho_kgm3*g)
+          deltaZ = MPa * km_per_MPa
+          print 'Delta Z from ', key, 'using Clapyeron slopes of ', Clap660[key], 'MPa/K : ',deltaZ, 'km'

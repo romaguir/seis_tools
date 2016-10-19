@@ -464,7 +464,8 @@ def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,**kwargs):
    if dist_deg <= 35.0:
       print dist_deg
       raise ValueError('The earthquake is too close')
-   elif dist_deg >= 80.0:
+   #elif dist_deg >= 80.0:
+   elif dist_deg >= 1300.0:
       print dist_deg
       raise ValueError('The earthquake is too far')
 
@@ -600,6 +601,7 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
    plot_figure: plot a figure showing source receiver geometry and delay map
    t_sig: estimated standard error in cross correlation measurement.
    add_noise: add gaussian noise to traveltime measurements of magnitude t_sig
+   fake_SKS_header: test the SKS header
    '''
    #define variables used in finite frequency tomography (kwargs)----------------
    idate = kwargs.get('idate','15001') #event date YYDDD where DDD is between 1 and 365
@@ -619,6 +621,7 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
    dist_max = kwargs.get('dist_max',90.0)
    t_sig = kwargs.get('t_sig',0.0)
    add_noise = kwargs.get('add_noise',False)
+   fake_SKS_header = kwargs.get('fake_SKS_header',False)
 
    #create taup model------------------------------------------------------------
    tt_model = TauPyModel(taup_model)
@@ -643,12 +646,21 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       f.write('6371 1 1'+'\n')
       f.write('3482 2 1'+'\n')
       f.write('6371 5 0'+'\n')
-   elif phase == 'S':
+   elif phase == 'S' and fake_SKS_header == False:
       gm_component = 'BHT ' #ground motion component
       f.write('S'+'\n')
       f.write('S'+'\n')
       f.write('6371 1 2'+'\n')
       f.write('3482 2 2'+'\n')
+      f.write('6371 5 0'+'\n')
+   elif phase == 'SKS' or fake_SKS_header == True:
+      gm_component = 'BHR ' #ground motion component
+      f.write('SKS'+'\n')
+      f.write('SKS'+'\n')
+      f.write('6371 1 2'+'\n')
+      f.write('3482 4 1'+'\n')
+      f.write('1217.1 2 1'+'\n')
+      f.write('3482 4 2'+'\n')
       f.write('6371 5 0'+'\n')
 
    #write spectral band information-----------------------------------------------

@@ -111,14 +111,22 @@ class velocity_model(object):
       table_directory = '/geo/home/romaguir/utils/lookup_tables/'
       h5_loc = table_directory+'lookup_tables.hdf5'
       basalt_fraction = kwargs.get('basalt_fraction','NA')
+      database = kwargs.get('database','stx11')
 
       if hdf5 == False:
          if composition == 'pyrolite':
-            lookup_table = table_directory+'stx11_pyr_WM_Q7_20s_aboveTmelt.tab'
+            if database == 'stx11':
+               lookup_table = table_directory+'stx11_pyr_WM_Q7_20s_aboveTmelt.tab'
          elif composition == 'morb':
-            lookup_table = table_directory+'stx11_morb_WM_Q7_20s_aboveTmelt.tab'
+            if database == 'stx11':
+               lookup_table = table_directory+'stx11_morb_WM_Q7_20s_aboveTmelt.tab'
+            elif database == 'sfo08':
+               lookup_table = table_directory+'MORB_sfo08.tab'
          elif composition == 'harzburgite':
-            lookup_table = table_directory+'stx11_harz_WM_Q7_20s_aboveTmelt.tab'
+            if database == 'stx11':
+               lookup_table = table_directory+'stx11_harz_WM_Q7_20s_aboveTmelt.tab'
+            elif database == 'sfo08':
+               lookup_table = table_directory+'Harzburgite_sfo08.tab'
 
          self.lookup_table = lookup_table
 
@@ -659,10 +667,8 @@ class velocity_model(object):
 
                if np.degrees(arc_distance) <= max_dist_from_axis:
 
-                  print _lon[i],_lat[j],_rad[k]
                   ir_2d  = int(_rad[k]-radmin)/self.dpr_km
                   it_2d =  int(arc_distance/self.dpth)  
-                  print ir_2d, it_2d
                   dth_unit  = (arc_distance - it_2d *self.dpth)/self.dpth
                   dr_unit   = (_rad[k] - radmin - ir_2d * self.dpr_km)/self.dpr_km
 
@@ -675,6 +681,7 @@ class velocity_model(object):
                                                    dr_unit,self.npts_theta,self.npts_rad)
       #THIS IS FOR POINT DATA
       #fill out each field-------------------------------------------------------
+      #'''
       for i in range(0,len(_lon)):
          for j in range(0,len(_lat)):
             for k in range(0,len(_rad)):
@@ -685,10 +692,8 @@ class velocity_model(object):
 
                if np.degrees(arc_distance) <= max_dist_from_axis:
 
-                  print _lon[i],_lat[j],_rad[k]
                   ir_2d  = int(_rad[k]-radmin)/self.dpr_km
                   it_2d =  int(arc_distance/self.dpth)  
-                  print ir_2d, it_2d
                   dth_unit  = (arc_distance - it_2d *self.dpth)/self.dpth
                   dr_unit   = (_rad[k] - radmin - ir_2d * self.dpr_km)/self.dpr_km
 
@@ -699,7 +704,7 @@ class velocity_model(object):
                                                       dr_unit,self.npts_theta,self.npts_rad)
                   drho3d.data_pts[k,j,i] = bilin_interp(drho_mat,it_2d,ir_2d,dth_unit,
                                                       dr_unit,self.npts_theta,self.npts_rad)
-
+      #'''
       return dvp3d,dvs3d,drho3d
                   
 

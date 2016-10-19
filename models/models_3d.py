@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interpn
 from scipy.interpolate import interp1d
+from seis_tools.models import models_1d
 
 # 3D_model_class
 class model_3d(object):
@@ -252,6 +253,57 @@ class model_3d(object):
       '''
       if format == 'pickle':
          pickle.dump(self,file(filename,'w'))
+
+   def write_specfem_ppm(self,**kwargs):
+       '''
+       writes a 3d model to ppm format for specfem
+       '''
+       fname = kwargs.get('fname','model.txt')
+       f = open(fname,'w')
+       f.write('#lon(deg), lat(deg), depth(km), Vs-perturbation wrt PREM(%), Vs-PREM(km/s) \n')
+       prem = models_1d.prem()
+
+       #loop through model and write points (lat = inner, lon = middle, rad = outer)
+       for i in range(0,len(self.rad)):
+	   depth = 6371.0 - self.rad[::-1][i]
+           prem_vs = 5.0 #prem.get_vs(depth)
+           for j in range(0,len(self.lon)):
+               lon = self.lon[j]
+               for k in range(0,len(self.lat)):
+                   lat = self.lat[k]
+                   dv = self.data_pts[(len(self.rad)-(i+1)),j,k]
+                   f.write('{} {} {} {} {}'.format(lon,lat,depth,dv,prem_vs)+'\n')
+
+   def write_specfem_heterogen(self,**kwargs):
+       '''
+       writes 3d model to a 'heterogen.txt' to be used in specfem.
+       '''
+       fname = kwargs.get('fname','heterogen.txt')
+       f = open(fname,'w')
+       for i in range(0,len(self.rad)):
+           for j in range(0,len(self.lat)):
+               for k in range(0,len(self.lon)):
+                   f.write('{}'.format(self.data_pts[i,j,k])+'\n')
+
+def write_specfem_ppm(dvs_model3d,dvp_model3d,drho_model3d,**kwargs):
+    '''
+    writes a 3d model to ppm format for specfem
+    '''
+    fname = kwargs.get('fname','model.txt')
+    f = open(fname,'w')
+    f.write('#lon(deg), lat(deg), depth(km), dvs(%), dvp(%), drho(%) \n')
+
+    #loop through model and write points (lat = inner, lon = middle, rad = outer)
+    for i in range(0,len(dvs_model3d.rad)):
+       depth = 6371.0 - dvs_model3d.rad[::-1][i]
+       for j in range(0,len(dvs_model3d.lon)):
+          lon = dvs_model3d.lon[j]
+          for k in range(0,len(dvs_model3d.lat)):
+             lat = dvs_model3d.lat[k]
+             dvs = dvs_model3d.data_pts[(len(dvs_model3d.rad)-(i+1)),j,k]
+             dvp = dvp_model3d.data_pts[(len(dvp_model3d.rad)-(i+1)),j,k]
+             drho = drho_model3d.data_pts[(len(drho_model3d.rad)-(i+1)),j,k]
+             f.write('{} {} {} {} {} {}'.format(lon,lat,depth,dvs,dvp,drho)+'\n')
 
 def write_s40_filter_inputs(model_3d,**kwargs):
    '''

@@ -26,7 +26,7 @@ from mpl_toolkits.basemap import Basemap
 from cycler import cycler
 import multiprocessing
 import shutil
-model = TauPyModel(model="ak135")
+model = TauPyModel(model="prem")
 
 def precursor_PKIKP(seis_stream_in,precursor_onset,time_offset,name=False):
     '''
@@ -367,6 +367,13 @@ def section(st,**kwargs):
     kwargs:
     shift: True or False. set start of every trace to be t=0
     flip_axes: True or False. if True, plots distance on x axis and time on y
+    fill:
+    shift:
+    save:
+    color:
+    showplot:
+    axis:
+    flip_axes:
     '''
     labels = kwargs.get('labels',False)
     phases = kwargs.get('phase_list',False)
@@ -378,7 +385,7 @@ def section(st,**kwargs):
     axis = kwargs.get('axis','none')
     flip_axes = kwargs.get('flip_axes',False)
 
-    def main():
+    def main(st):
         p_list,name_list,dist_list = p_list_maker(st)
         lim_tuple = ax_limits(p_list)
 
@@ -391,7 +398,8 @@ def section(st,**kwargs):
             add_to_axes(ii,ax)
 
         if phases != False:
-            phase_plot(lim_tuple,50.,st[0].stats.sac['evdp'],phases,ax)
+            #phase_plot(lim_tuple,50.,st[0].stats.sac['evdp'],phases,ax)
+            phase_plot_rm(st,phases,ax)
 
         if flip_axes == False:
            ax.set_ylabel('Distance (deg)')
@@ -437,6 +445,39 @@ def section(st,**kwargs):
                 y = (1/p)*(x-time)+ref_degree
                 ax.plot(x,y,alpha=0.3,label=ii.name,c=colors[idx])
                 ax.legend()
+
+    def phase_plot_rm(st,phases,ax):
+
+        colors = ['b','g','r','c','m','y','k']
+        counter = 0
+
+        #sort by great circle distance
+        for tr in st:
+           tr.stats.gcarc = tr.stats.sac['gcarc']
+        st.sort(keys=['gcarc'])
+
+        for phase in phases:
+           dist_list = []
+           arrs_list = []
+           for tr in st:
+               dist = tr.stats.sac['gcarc']
+               evdp = tr.stats.sac['evdp']
+               arrs = model.get_travel_times(distance_in_degree=dist,
+                                             source_depth_in_km=evdp,
+                                             phase_list = [phase])
+               if len(arrs) != 0:
+                  dist_list.append(dist)
+                  arrs_list.append(arrs[0].time)
+
+           if flip_axes:
+              ax.plot(dist_list,arrs_list,label=phase,c=colors[counter])
+           else:
+              ax.plot(arrs_list,dist_list,label=phase,c=colors[counter])
+
+           counter += 1
+
+        ax.legend()
+                   
 
     def plotter(art,lim_tuple,ax):
         ax.grid()
@@ -487,7 +528,7 @@ def section(st,**kwargs):
         max_time = max(range_list[:,2])
         return ([min_time,max_time],[min_range-3,max_range+3])
 
-    m = main()
+    m = main(st)
     return m
 
 def fft(tr, freqmin=0.0, freqmax=2.0):
@@ -834,3 +875,9 @@ def gmt_north_america(**kwargs):
 
    #save figure
    gmt.save(fname)
+
+def sort_by_gcarc(st):
+    for tr in st:
+        tr.stats.gcarc = tr.stats.sac['gcarc']
+    st.sort(keys=['gcarc'])
+    return st

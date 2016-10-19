@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 
 class seismodel_1d(object):
    '''
@@ -10,6 +11,24 @@ class seismodel_1d(object):
       self.vp  = np.zeros(1)
       self.vs  = np.zeros(1)
       self.rho = np.zeros(1)
+
+   def get_vp(self,depth):
+       r_here = 6371.0 - depth
+       interp_vp = interp1d(self.r,self.vp)
+       vp_here = interp_vp(r_here)
+       return vp_here
+
+   def get_vs(self,depth):
+       r_here = 6371.0 - depth
+       interp_vs = interp1d(self.r,self.vs)
+       vs_here = interp_vs(r_here)
+       return vs_here
+
+   def get_rho(self,depth):
+       r_here = 6371.0 - depth
+       interp_rho = interp1d(self.r,self.rho)
+       rho_here = interp_rho(r_here)
+       return rho_here
 
 # model ak135--------------------------------------------------------------------
 
