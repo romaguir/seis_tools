@@ -2,6 +2,44 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 
+def rad_to_pressure(radius,rho):
+   '''
+   takes two axes (radius and density), and finds pressure at each point in radius
+
+   args:
+        radius: numpy array. given in assending order. units:km
+        rho: density values corresponding to radius. units: g/cm^3
+
+   returns: pressures (Pa)
+   '''
+   debug=False
+   
+   r = radius*1000.0
+   dr = np.diff(r)
+   rho *= 1000.0
+   g = np.zeros(len(r))
+   mass = np.zeros(len(r))
+   p_layer = np.zeros(len(r))
+   p = np.zeros(len(r))
+   G = 6.67408e-11
+   
+   for i in range(1,len(r)):
+       mass[i] = 4.0*np.pi*r[i]**2*rho[i]*dr[i-1] #mass of layer
+   for i in range(1,len(r)):
+       g[i] = G*np.sum(mass[0:i])/(r[i]**2)
+   for i in range(1,len(r)):
+       p_layer[i] = rho[i]*g[i]*dr[i-1]
+   for i in range(0,len(r)):
+       p[i] = np.sum(p_layer[::-1][0:len(r)-i])
+
+   if debug:
+      for i in range(0,len(r)):
+          print 'r(km),rho,g,p',r[i]/1000.0,rho[i],g[i],p[i]
+
+   p[0] = 0.0
+
+   return p
+
 class seismodel_1d(object):
    '''
    class for dealing with various 1d seismic models
@@ -29,6 +67,31 @@ class seismodel_1d(object):
        interp_rho = interp1d(self.r,self.rho)
        rho_here = interp_rho(r_here)
        return rho_here
+
+   def get_p(self,depth):
+       r_here = 6371.0 - depth
+       interp_p = interp1d(self.r,self.p)
+       p_here = interp_p(r_here)
+       return p_here
+
+   def plot(self,var='all'):
+       if var == 'all':
+           plt.plot(self.vp,self.r,label='Vp')
+           plt.plot(self.vs,self.r,label='Vs')
+           plt.plot(self.rho/1000.0,self.r,label='rho')
+       elif var == 'vp':
+           plt.plot(self.vp,self.r,label='Vp')
+       elif var == 'vs':
+           plt.plot(self.vs,self.r,label='Vs')
+       elif var == 'rho':
+           plt.plot(self.rho/1000.0,self.r,label='rho')
+       else:
+           raise ValueError('Please select var = "all","vp","vs",or "rho"')
+
+       plt.xlabel('velocity (km/s), density (g/cm$^3$)')
+       plt.ylabel('radius (km)')
+       plt.legend()
+       plt.show()
 
 # model ak135--------------------------------------------------------------------
 
@@ -158,7 +221,7 @@ def prem():
    adapted from C code written by Andreas Fichtner in SES3D
    '''
    prem = seismodel_1d()
-   prem.r = np.arange(0,6371,10)
+   prem.r = np.arange(0,6372,1)
    prem.vp = np.zeros((len(prem.r)))
    prem.vs = np.zeros((len(prem.r)))
    prem.rho = np.zeros((len(prem.r)))
@@ -218,6 +281,8 @@ def prem():
          prem.vp[i] = 11.2622 - 6.3640*r2
          prem.vs[i] = 3.6678 - 4.4475*r2
 
+   prem.p = rad_to_pressure(prem.r,prem.rho)
+
    return prem
 
 def plot(model_name,var):
@@ -236,3 +301,4 @@ def plot(model_name,var):
       plt.plot(model.rho,model.r)
 
    plt.show()
+

@@ -1,5 +1,10 @@
+#The following two lines are for making plots on etude compute nodes
+import matplotlib as mpl
+mpl.use('Agg')
+
 import os
 import h5py
+import copy
 import subprocess
 import numpy as np
 from ast import literal_eval
@@ -7,23 +12,42 @@ from scipy import interpolate
 from matplotlib import mlab
 import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
-from obspy.core.util.geodetics import gps2DistAzimuth
+#from obspy.core.util.geodetics import gps2DistAzimuth
+from obspy.core.util.geodetics import calcVincentyInverse
+from obspy.core.util.geodetics import gps2dist_azimuth
 from obspy.core.util.geodetics import kilometer2degrees
+from seis_tools.ses3d.rotation import rotate_coordinates
 from scipy.signal import iirfilter, lfilter, freqz
 from obspy.taup import TauPyModel
 from geopy.distance import VincentyDistance
+from seis_tools.seispy.misc import find_rotation_angle,find_rotation_vector
 import geopy
+import glob
 
-def make_stations(latmin,latmax,lonmin,lonmax,geometry='random',plot=True,**kwargs):
+def make_station_list(param_dict,plot=True,**kwargs):
+   '''
+   Writes, and returns list of station locations (lon,lat)
 
-   dlat = kwargs.get('dlat',2.0)
-   dlon = kwargs.get('dlon',2.0)
-   nstations = kwargs.get('nstations',20)
+   params------------------------------------------------------------------------
+   param_dict: parameter dictionary (read from file 'inparam_tomo')
 
+   returns: station list (lon,lat)
+   '''
+   latmin = param_dict['latmin']
+   latmax = param_dict['latmax']
+   lonmin = param_dict['lonmin']
+   lonmax = param_dict['lonmax']
+   geometry = param_dict['station_geometry']
+   dlat = param_dict['dlat']
+   dlon = param_dict['dlon']
+   nstations = param_dict['nstations']
+
+   #generate random station locations
    if geometry=='random':
       lons = ((lonmax-lonmin)*np.random.random_sample(nstations)) + lonmin
       lats = ((latmax-latmin)*np.random.random_sample(nstations)) + latmin
 
+   #generate grid of stations
    elif geometry=='grid':
       lons_ = np.arange(lonmin,lonmax+1*dlon,dlon)
       lats_ = np.arange(latmin,latmax+1*dlat,dlat)
@@ -31,20 +55,21 @@ def make_stations(latmin,latmax,lonmin,lonmax,geometry='random',plot=True,**kwar
       lons = lons.flatten()
       lats = lats.flatten()
 
-   stations = np.array((lats,lons))
+   stations = np.array((lons,lats))
 
-   f = open('stations_list','w')
+   #write station file
+   f = open('station_list','w')
    for i in range(0,len(lons)):
       f.write('{} {}'.format(lons[i],lats[i])+'\n')
 
+   #plot
    if plot:
       plt.scatter(lons,lats)
       plt.show()
 
-
    return stations
 
-def make_earthquake_list(geometry='random',obspy_catalog=False,**kwargs):
+def make_earthquake_list(param_dict,**kwargs):
    '''
    Generate earthquakes to be used in tomographic inversion. Earthquake locations can 
    be generated randomly within the distance range (deltamin, deltamax), or alternatively
@@ -52,7 +77,7 @@ def make_earthquake_list(geometry='random',obspy_catalog=False,**kwargs):
    In the futures, events may be given as an obspy event catalog.
 
    args--------------------------------------------------------------------------
-   geometry: either 'random' or 'ring'
+   param_dict: parameter dictionary (read from file 'inparam_tomo')
    
    kwargs------------------------------------------------------------------------
    nevents: number of earthquakes (only use if geometry is 'random')
@@ -61,15 +86,16 @@ def make_earthquake_list(geometry='random',obspy_catalog=False,**kwargs):
    ringdist = distance of ring from (0,0). Can be tuple for multiple rings. (only if geometry is 'ring')
    dtheta = spacing between earthquakes in ring, given in degrees. Default = 30.
    '''
+   geometry = param_dict['event_geometry']
+   nevents = param_dict['nevents']
+   depth = param_dict['depth']
+   deltamin = param_dict['deltamin']
+   deltamax = param_dict['deltamax']
+   ringdist = param_dict['ringdist']
+   dtheta = param_dict['dtheta']
 
    lat0 = kwargs.get('lat0',0.0)
    lon0 = kwargs.get('lon0',0.0)
-   depth = kwargs.get('depth',0.0)
-   dtheta = kwargs.get('dtheta',30.0)
-   nevents = kwargs.get('nevents',0)
-   deltamin = kwargs.get('deltamin',0)
-   deltamax = kwargs.get('deltamax',0)
-   ringdist = kwargs.get('ringdist',50)
 
    eq_list = []
    n = 1
@@ -78,40 +104,15 @@ def make_earthquake_list(geometry='random',obspy_catalog=False,**kwargs):
       while len(eq_list) < nevents:
          lon = (2.0*deltamax*np.random.random(1)) - deltamax
          lat = (2.0*deltamax*np.random.random(1)) - deltamax
-         dist_az = gps2DistAzimuth(lat,lon,lat0,lon0)
+         dist_az = gps2dist_azimuth(lat,lon,lat0,lon0,a=6371000.0,f=0.0)
          dist_km = dist_az[0]/1000.0
          dist_deg = kilometer2degrees(dist_km)
 
          if dist_deg >= deltamin and dist_deg <= deltamax:
-            eq_list.append((n,lat[0],lon[0],depth))
+            eq_list.append((n,lon[0],lat[0],depth))
             n += 1
 
    elif geometry=='ring':
-      theta = np.arange(0,360,dtheta)
-      thetarad = np.radians(theta)
-
-      if type(ringdist)==int or type(ringdist)==float:
-         lat0 = 0
-         lon0 = ringdist
-         lats = lon0*np.sin(thetarad)
-         lons = lon0*np.cos(thetarad)
-
-         for j in range(0,len(lons)):
-            eq_list.append((n,lats[j],lons[j],depth))
-            n += 1
-
-      elif type(ringdist==tuple):
-         for r in ringdist:
-            lat0 = 0
-            lon0 = r
-            lats = lon0*np.sin(thetarad)
-            lons = lon0*np.cos(thetarad)
-
-            for j in range(0,len(lons)):
-               eq_list.append((n,lats[j],lons[j],depth))
-               n += 1
-
-   elif geometry=='ring2':
       theta = np.arange(0,360,dtheta)
       origin = geopy.Point(0,0)
       eq_list = []
@@ -123,7 +124,7 @@ def make_earthquake_list(geometry='random',obspy_catalog=False,**kwargs):
             destination = VincentyDistance(kilometers=d_km).destination(origin,bearing)
             lat = destination[0]
             lon = destination[1]
-            eq_list.append((n,lat,lon,depth))
+            eq_list.append((n,lon,lat,depth))
             n += 1
 
       elif type(ringdist==tuple):
@@ -134,11 +135,34 @@ def make_earthquake_list(geometry='random',obspy_catalog=False,**kwargs):
                destination = VincentyDistance(kilometers=d_km).destination(origin,bearing)
                lat = destination[0]
                lon = destination[1]
-               eq_list.append((n,lat,lon,depth))
+               eq_list.append((n,lon,lat,depth))
                n += 1
 
    np.savetxt('earthquake_list',eq_list,fmt=['%d','%5.5f','%5.5f','%5.5f'])
    return eq_list
+
+def read_earthquake_list(param_dict):
+   filename=param_dict['events_file']
+   f = np.loadtxt(filename)
+   n = f[:,0]
+   lon = f[:,1]
+   lat = f[:,2]
+   depth = f[:,3]
+   eq_list = []
+
+   for i in range(0,len(n)):
+      eq_list.append((n[i],lon[i],lat[i],depth[i]))
+
+   return eq_list
+
+def read_station_list(param_dict):
+   filename=param_dict['stations_file']
+   f = np.loadtxt(filename)
+   lons = f[:,0]
+   lats = f[:,1]
+   stations = np.array((lons,lats))
+
+   return stations
 
 def read_inparam(inparam_file):
    period_list = []
@@ -154,6 +178,7 @@ def read_inparam(inparam_file):
       delays_file = line.strip().split()[1]
       line = f.readline()
       phase = line.strip().split()[1]
+      phases_list = phase.split(',')
       line = f.readline()
       nperiods = line.strip().split()[1]
 
@@ -169,11 +194,15 @@ def read_inparam(inparam_file):
       line = f.readline()
       add_noise = line.strip().split()[1]
       line = f.readline()
+      inv_param = line.strip().split()[1]
+      line = f.readline()
 
       #read event info
       line = f.readline()
       line = f.readline()
       event_geometry = line.strip().split()[1]
+      line = f.readline()
+      events_file = line.strip().split()[1]
       line = f.readline()
       nevents = line.strip().split()[1]
       line = f.readline()
@@ -185,11 +214,15 @@ def read_inparam(inparam_file):
       line = f.readline()  
       dtheta = line.strip().split()[1]
       line = f.readline()
+      depth = line.strip().split()[1]
+      line = f.readline()
 
       #read station info
       line = f.readline()
       line = f.readline()
       station_geometry = line.strip().split()[1]
+      line = f.readline()
+      stations_file = line.strip().split()[1]
       line = f.readline()
       nstations = line.strip().split()[1]
       line = f.readline()
@@ -206,63 +239,13 @@ def read_inparam(inparam_file):
       dlon = line.strip().split()[1]
       line = f.readline()
 
-      #read inversion settings
-      line = f.readline()
-      line = f.readline()
-      dlnVp = line.strip().split()[1]
-      line = f.readline()
-      dlnVs = line.strip().split()[1]
-      line = f.readline()
-      dlnQs = line.strip().split()[1]
-      line = f.readline()
-      sig_est = line.strip().split()[1]
-      line = f.readline()
-      use_hypo_corr = line.strip().split()[1]
-      line = f.readline()
-      hypo_corr_km = line.strip().split()[1]
-      line = f.readline()
-      use_sta_corrTP = line.strip().split()[1]
-      line = f.readline()
-      sta_corrTP = line.strip().split()[1]
-      line = f.readline()
-      use_sta_corrAP = line.strip().split()[1]
-      line = f.readline()
-      sta_corrAP = line.strip().split()[1]
-      line = f.readline()
-      use_origin_corr = line.strip().split()[1]
-      line = f.readline()
-      origin_corr = line.strip().split()[1]
-      line = f.readline()
-      use_evnt_corr = line.strip().split()[1]
-      line = f.readline()
-      evnt_corr = line.strip().split()[1]
-      line = f.readline()
-      use_sta_corrTS = line.strip().split()[1]
-      line = f.readline()
-      sta_corrTS = line.strip().split()[1]
-      line = f.readline()
-      use_sta_corrAS = line.strip().split()[1]
-      line = f.readline()
-      sta_corrAS = line.strip().split()[1]
-      line = f.readline()
-      use_ellip_corr = line.strip().split()[1]
-      line = f.readline()
-      use_crust_corr = line.strip().split()[1]
-      line = f.readline()
-      use_elev_corr = line.strip().split()[1]
-      line = f.readline()
-      use_Qdis_corr = line.strip().split()[1]
-      line = f.readline()
-      demean = line.strip().split()[1]
-      
-
       #find nevents for 'ring' geometry option
-      ringdist = literal_eval(ringdist)
-      if event_geometry=='ring':
-         if type(ringdist)==int or type(ringdist)==float:
-            nevents = 360.0 / literal_eval(dtheta)
-         elif type(ringdist)==tuple:
-            nevents = len(ringdist) * (360 / literal_eval(dtheta))
+      #ringdist = literal_eval(ringdist)
+      #if event_geometry=='ring':
+      #   if type(ringdist)==int or type(ringdist)==float:
+      #      nevents = 360.0 / literal_eval(dtheta)
+      #   elif type(ringdist)==tuple:
+      #      nevents = len(ringdist) * (360 / literal_eval(dtheta))
 
       param_dict = {'run_name':run_name,
                     'delays_file':delays_file,
@@ -274,7 +257,7 @@ def read_inparam(inparam_file):
                     'nevents':int(nevents),
                     'deltamin':float(deltamin),
                     'deltamax':float(deltamax),
-                    'ringdist':ringdist,
+                    'ringdist':literal_eval(ringdist),
                     'dtheta':float(dtheta),
                     'station_geometry':station_geometry,
                     'nstations':int(nstations),
@@ -284,39 +267,16 @@ def read_inparam(inparam_file):
                     'lonmax':float(lonmax),
                     'dlat':float(dlat),
                     'dlon':float(dlon),
-                    'dlnVp':literal_eval(dlnVp),
-                    'dlnVs':literal_eval(dlnVs),
-                    'dlnQs':literal_eval(dlnQs),
-                    'sig_est':literal_eval(sig_est),
-                    'use_hypo_corr':literal_eval(use_hypo_corr),
-                    'hypo_corr_km':literal_eval(hypo_corr_km),
-                    'use_sta_corrTP':literal_eval(use_sta_corrTP),
-                    'sta_corrTP':literal_eval(sta_corrTP),
-                    'use_sta_corrAP':literal_eval(use_sta_corrAP),
-                    'sta_corrAP':literal_eval(sta_corrAP),
-                    'use_origin_corr':literal_eval(use_origin_corr),
-                    'origin_corr':literal_eval(origin_corr),
-                    'use_evnt_corr':literal_eval(use_evnt_corr),
-                    'evnt_corr':literal_eval(evnt_corr),
-                    'use_sta_corrTS':literal_eval(use_sta_corrTS),
-                    'sta_corrTS':literal_eval(sta_corrTS),
-                    'use_sta_corrAS':literal_eval(use_sta_corrAS),
-                    'sta_corrAS':literal_eval(sta_corrAS),
-                    'use_ellip_corr':literal_eval(use_ellip_corr),
-                    'use_crust_corr':literal_eval(use_crust_corr),
-                    'use_elev_corr':literal_eval(use_elev_corr),
-                    'use_Qdis_corr':literal_eval(use_Qdis_corr),
-                    'demean':literal_eval(demean),
                     't_sig':literal_eval(t_sig),
                     'add_noise':literal_eval(add_noise),
-                    'ray_theory':literal_eval(ray_theory)}
+                    'ray_theory':literal_eval(ray_theory),
+                    'phases_list':phases_list,
+                    'events_file':events_file,
+                    'stations_file':stations_file,
+                    'depth':literal_eval(depth),
+		    'inv_param':inv_param}
 
-      #return run_name,delays_file,phase,nperiods,period_list, \
-      #       taup_model,event_geometry,nevents,delta_min,delta_max, \
-      #       station_geometry,nstations,latmin,latmax,lonmin,lonmax
       return param_dict
-        
-   
 
 def rotate_delays(lat_r,lon_r,lon_0=0.0,lat_0=0.0,degrees=0):
    '''
@@ -345,29 +305,27 @@ def plot_geo_config(stations,events):
    m.drawcoastlines()
    m.drawmeridians(np.arange(0,361,30))
    m.drawparallels(np.arange(-90,91,30))
-   station_lats = stations[0,:]
-   station_lons = stations[1,:]
+   station_lons = stations[0,:]
+   station_lats = stations[1,:]
    x,y = m(station_lons,station_lats)
    m.scatter(x,y,s=50,marker='^',c='r')
 
    for event in events:
-      lon = event[2]
-      lat = event[1]
+      lon = event[1]
+      lat = event[2]
       x,y = m(lon,lat)
       m.scatter(x,y,s=100,marker='*',c='y')
 
    plt.savefig('geo_config.pdf',format='pdf')
-   #lons2,lats2 = m(lons,lats)
-   #m.pcolormesh(lons2,lats2,event_map,vmin=-3.0,vmax=0.1)
-
 
 def get_event_params(eq_lat,eq_lon):
-   dist_az = gps2DistAzimuth(eq_lat,eq_lon,0,0)
+   dist_az = gps2dist_azimuth(eq_lat,eq_lon,0,0,a=6371000.0,f=0.0)
    dist_km = dist_az[0]/1000.0
    dist_deg = kilometer2degrees(dist_km)
    az = dist_az[1]
    baz = dist_az[2]
-   rotation_angle = -1.0*(az - 90.0)
+   rotation_angle = -1.0*((baz-180) -90.0)
+   #rotation_angle = -1.0*(az-90.0)
 
    return dist_deg,rotation_angle
 
@@ -383,7 +341,8 @@ def get_filter_params(delays_file,phase,Tmin):
    if os.path.isfile(delays_file):
       f = h5py.File(delays_file)
 
-   data = f[phase]['35'][Tmin]
+   key_list = f[phase].keys()
+   data = f[phase][key_list[0]][Tmin]
    filter = data.attrs['filter']
    freqmin = data.attrs['freqmin']
    freqmax = data.attrs['freqmax']
@@ -433,7 +392,7 @@ def get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate,**kwargs):
 
    return omega, amp
 
-def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,**kwargs):
+def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,plot=True,**kwargs):
    '''
    find delay interpolated delay time for an arbitrary station and earthquake location
 
@@ -455,12 +414,16 @@ def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,**kwargs):
    return_axis = kwargs.get('return_axis',False)
    lats_i = kwargs.get('lats_i',np.arange(-30.0,30.0,0.1))
    lons_i = kwargs.get('lons_i',np.arange(-30.0,30.0,0.1))
+   nevent=kwargs.get('nevent',1)
+
+   debug = False
 
    #-----------------------------------------------------------------------------
    #Step 1) Find earthquake distance and back azimuth (from [0,0])
    #-----------------------------------------------------------------------------
    dist_deg, rotation_angle = get_event_params(eq_lat,eq_lon)
 
+   '''
    if dist_deg <= 35.0:
       print dist_deg
       raise ValueError('The earthquake is too close')
@@ -468,11 +431,22 @@ def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,**kwargs):
    elif dist_deg >= 1300.0:
       print dist_deg
       raise ValueError('The earthquake is too far')
+   '''
+   if phase == 'P' or phase == 'S' or phase == 'SSS':
+       event_list = ['30','40','50','60','70','80','90']
+       zi = np.array((30,40,50,60,70,80,90))
+   elif phase == 'SKS':
+       event_list = ['70','80','90','100','110','120']
+       zi = np.array((70,80,90,100,110,120))
+
+   if debug:
+      print "distance between event and (0,0) ", dist_deg
+      print "make_event_delay_map: phase,event_list = ",phase,event_list
 
    #-----------------------------------------------------------------------------
    #Step 2) Create interpolated delay map for given distance
    #-----------------------------------------------------------------------------
-   event_list = ['35','50','65','80'] #distances of modelled events
+   #event_list = ['35','50','65','80'] #distances of modelled events
    delay_points = []
    delay_maps = []
    
@@ -492,10 +466,14 @@ def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,**kwargs):
       except KeyError:
          print 'Delays for Tmin = ', Tmin, ' dont exist. Try one of ', phase_delays[event].keys()
 
+   if debug:
+      print 'events available for phase ',phase,' are ',phase_delays.keys()
+
    #get point information
 
    #xi = np.arange(-30,30.0,0.1) #list of x values to interpolate on
    #yi = np.arange(-30,30.0,0.1) #list of y values to interpolate on
+   count = 0
    for points in delay_points:
       x = points[0]
       y = points[1]
@@ -504,11 +482,19 @@ def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,**kwargs):
       y,x = rotate_delays(y,x,0.0,0.0,rotation_angle)
 
       delays = points[2]
+
+      #if debug:
+      #   plt.scatter(x,y,c=delays)
+      #	  plt.colorbar()
+      #	  plt.show()
+      #   plt.title(event_list[count])
+      #   count += 1
+
       dti = mlab.griddata(x,y,delays,lons_i,lats_i,interp='linear')
       dti = np.nan_to_num(dti)
       delay_maps.append(dti.data)
 
-   zi = np.array((35,50,65,80))
+   #zi = np.array((35,50,65,80))
    delay_array = np.array(delay_maps) 
    event_interpolator = interpolate.RegularGridInterpolator((zi,lats_i,lons_i),delay_array)
 
@@ -516,21 +502,26 @@ def make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,**kwargs):
    xx,yy = np.meshgrid(lons_i,lats_i)
    event_map = event_interpolator((dist_deg,yy,xx)) 
 
+   #if debug:
+   plot=True
    if plot:
+      plt.clf()
       lons,lats = np.meshgrid(lons_i,lats_i)
       m = Basemap(projection='hammer',lon_0=0,resolution='l')
       m.drawcoastlines()
-      m.drawmeridians(np.arange(0,351,10))
-      m.drawparallels(np.arange(-80,81,10))
+      m.drawmeridians(np.arange(0,351,30))
+      m.drawparallels(np.arange(-90,91,30))
       lons2,lats2 = m(lons,lats)
       m.pcolormesh(lons2,lats2,event_map,vmin=-3.0,vmax=0.1)
       m.colorbar()
       lon_eq,lat_eq = m(eq_lon,eq_lat)
-      m.scatter(lon_eq,lat_eq,marker='*',s=100,c='y')
+      m.scatter(lon_eq,lat_eq,marker='*',s=100,c='y',zorder=99)
+      m.drawgreatcircle(eq_lon,eq_lat,0,0,linewidth=2,color='b')
       plt.title('{} delays at {} s'.format(phase,Tmin))
+      plt.savefig('{}_{}_eq{}.png'.format('eventmap',phase,nevent))
 
-      if not return_axis:
-         plt.show()
+      #if not return_axis:
+      #   plt.show()
 
    if return_axis: 
       return event_map,m
@@ -564,8 +555,8 @@ def get_station_delays(event_map,stations,lats_i,lons_i,**kwargs):
          lats.append(station.latitude) 
          lons.append(stations.longitude)
    else:
-      lats = stations[0,:]
-      lons = stations[1,:]
+      lons = stations[0,:]
+      lats = stations[1,:]
 
    delay_interpolator = interpolate.RegularGridInterpolator((lons_i,lats_i),event_map)
    station_delays = delay_interpolator((lats,lons))
@@ -578,8 +569,7 @@ def get_station_delays(event_map,stations,lats_i,lons_i,**kwargs):
    return station_delays
    
 
-def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_model,filename,
-               raytheory=False,tt_from_raydata=True,**kwargs):
+def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_model,filename,raytheory=False,tt_from_raydata=True,**kwargs):
    '''
    write an input file for globalseis finite frequency tomography software.
    each earthquake and datatype (P,S,etc...) has it's own input file
@@ -588,7 +578,7 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
    eq_lat: earthquake latitude (deg)
    eq_lon: earthquake longitude (deg)
    eq_dep: earthquake depth (km)
-   stations: stations
+   stations: stations array (lons,lats)
    delays_file: h5py datafile containing cross correlation delay times
    Tmin: minimum period at which cross correlation measurements were made
    taup_model: name of TauPyModel used to calculate 1D travel times
@@ -622,6 +612,10 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
    t_sig = kwargs.get('t_sig',0.0)
    add_noise = kwargs.get('add_noise',False)
    fake_SKS_header = kwargs.get('fake_SKS_header',False)
+
+   ievt=int(ievt) #double check ievt is an integer (in case it was read from a file)
+
+   debug = False
 
    #create taup model------------------------------------------------------------
    tt_model = TauPyModel(taup_model)
@@ -663,6 +657,22 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       f.write('3482 4 2'+'\n')
       f.write('6371 5 0'+'\n')
 
+   #this is hardwired for now (based on range of rays found with ray tracing software)
+   #TODO make distance range more adaptable
+   if phase == 'P':
+      dist_min = 30.0
+      #dist_max = 98.3859100
+      dist_max = 97.0
+   elif phase == 'S':
+      dist_min = 30.0
+      #dist_max = 99.0557175
+      dist_max = 97.0
+   elif phase == 'SKS':
+      #dist_min = 66.0320663
+      #dist_max = 144.349365
+      dist_min = 68.0
+      dist_max = 142.0
+
    #write spectral band information-----------------------------------------------
    if raytheory:
       n_bands=0
@@ -674,15 +684,18 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
          f.write('{} {}'.format(omega[i],amp[i])+'\n')
 
    #event delay map--------------------------------------------------------------
-   lats_i = np.arange(-30.0,30.0,0.1)
-   lons_i = np.arange(-30.0,30.0,0.1)
+   #lats_i = np.arange(-30.0,30.0,0.1)
+   #lons_i = np.arange(-30.0,30.0,0.1)
+   lats_i = np.arange(-45.0,45.0,0.1)
+   lons_i = np.arange(-45.0,45.0,0.1)
 
    if plot_figure:
-      event_map,figure_axis = make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,lats_i=lats_i,
-                                                   lons_i=lons_i,plot=False,return_axis=False)
+      event_map,figure_axis = make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,lats_i=lats_i,lons_i=lons_i,plot=True,return_axis=False,nevent=ievt)
    else:
-      event_map = make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,
-                                       lats_i=lats_i,lons_i=lons_i,return_axis=False)
+      if debug:
+         print 'func:write_input- making event delay map for', phase
+         #print 'eq_lat,eq_lon,phase,Tmin lats_i,lons_i',eq_lat,eq_lon,phase,Tmin,lats_i,lons_i
+      event_map = make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,lats_i=lats_i,                                          lons_i=lons_i,return_axis=False,plot=True,nevent=ievt)
 
    #find delays at stations------------------------------------------------------
    if plot_figure:
@@ -696,34 +709,43 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       if add_noise:
          station_delays += noise
 
-   station_lats = stations[0,:]
-   station_lons = stations[1,:]
+   station_lons = stations[0,:]
+   station_lats = stations[1,:]
    n_stations = len(station_lats)
    station_elevation = 0.0
 
    for i in range(0,n_stations):
-      #get ray theoretical travel time 
       dist_deg, rotation_angle = get_event_params(eq_lat,eq_lon)
       #find event distance
-      event_distaz = gps2DistAzimuth(eq_lat,eq_lon,station_lats[i],station_lons[i])
+      event_distaz = gps2dist_azimuth(eq_lat,eq_lon,station_lats[i],station_lons[i],a=6371000.0,f=0.0)
       event_dist_deg = kilometer2degrees((event_distaz[0]/1000.0)) 
 
       #skip station if too close or too far from source
       if event_dist_deg <= dist_min or event_dist_deg >= dist_max:
          continue
 
-      ray_theory_arr = tt_model.get_travel_times(eq_dep,event_dist_deg,[phase,'p','Pdiff'])
+      #get ray theoretical travel time 
+      #if phase == 'S':
+      #   phase_list = ['s','S','Sdiff']
+      #elif phase == 'P':
+      #   phase_list = ['p','P','Pdiff']
+
+      ray_theory_arr = tt_model.get_travel_times(eq_dep,event_dist_deg,phase_list=[phase])
+      if debug:
+	 print '_________________________________________________________________________________'
+         print 'arrivals from taup_get_travel_time for event parameters [depth,delta(deg),phase]:'
+	 print '[{},{},{}]'.format(eq_dep,event_dist_deg,phase),ray_theory_arr
+	 print '_________________________________________________________________________________'
+
       ray_theory_travel_time = ray_theory_arr[0].time
       delay_time = station_delays[i] 
-
-      #tobs = ray_theory_travel_time + delay_time     #don't add if sign convention is negative for late arrivals
       tobs = ray_theory_travel_time - delay_time
-      #tobs = ray_theory_travel_time #THIS IS FOR BACKGROUND TESTING, REMOVE!! : RM082016
-      #print 'station lats, station lons ', station_lats[i], station_lons[i]
-      #print 'the ray theoretical travel time is ', ray_theory_travel_time
-      print 'the delay time is', delay_time
+
+      if debug:
+          print 'distance, phase, raytheory travel time, observed delay:', event_dist_deg,phase,ray_theory_travel_time,delay_time
+          print 'the travel time observation is ', tobs
+
       fdelays.write('{}'.format(delay_time)+'\n')
-      #print 'the travel time observation is ', tobs
 
       if raytheory:
          n_bands = 0
@@ -758,116 +780,6 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       #write line 5--------------------------------------------------------------
       f.write('{}'.format(0)+'\n')
 
-def write_run_raydata(run_name,nevents):
-   '''
-   writes the file run_raydata.py to run program 'raydata'
-   '''
-
-   f = open('run_raydata.py','w')
-   f.write('import os'+'\n') 
-   f.write('import subprocess'+'\n') 
-   f.write('import numpy as np'+'\n') 
-   f.write('executable = "/geo/home/romaguir/globalseis/bin/raydata2"'+'\n')
-   f.write('{} = "{}"'.format('run_name',run_name)+'\n')
-   f.write('{} = {}'.format('nevents',nevents)+'\n')
-   f.write('for i in range(1,nevents+1):'+'\n')
-   f.write('   {}'.format("fname = 'in.rd'"+'\n'))
-   f.write('   {}'.format("f = open(fname,'w')"+'\n'))
-   f.write('   {}'.format("event_id = '{}_{}'.format(run_name,i)"+'\n'))
-   f.write('   {}'.format("line = '{}'.format('/geo/home/romaguir/utils/IASP91')"+'\n'))
-   f.write('   {}'.format("f.write(line+'\\n')"+'\n'))
-   f.write('   {}'.format("line = '{} {}'.format(1,5)"+'\n'))
-   f.write('   {}'.format("f.write(line+'\\n')"+'\n'))
-   f.write('   {}'.format("line = '{}'.format(event_id)"+'\n'))
-   f.write('   {}'.format("f.write(line+'\\n')"+'\n'))
-   f.write('   {}'.format("f.close()"+'\n'))
-   f.write('   {}'.format("subprocess.call(executable+' < '+fname,shell=True)"+'\n'))
-
-def write_run_voxelmatrix(run_name,nevents,model_par):
-   '''
-   writes the file run_voxelmatrix.py to run program 'voxelmatrix'
-
-   args--------------------------------------------------------------------------
-   run_name
-   nevents
-   model_par: model parameter to invert for (Vp, Vs)
-   '''
-   f = open('run_voxelmatrix.py','w')
-   f.write('import os'+'\n') 
-   f.write('import subprocess'+'\n') 
-   f.write('import numpy as np'+'\n') 
-   f.write('executable = "/geo/home/romaguir/globalseis/bin/voxelmatrix"'+'\n')
-   f.write('{} = "{}"'.format('run_name',run_name)+'\n')
-   f.write('{} = {}'.format('nevents',nevents)+'\n')
-   f.write('for i in range(1,nevents+1):'+'\n')
-   f.write('   {}'.format("fname = 'in.vxm'"+'\n'))
-   f.write('   {}'.format("f = open(fname,'w')"+'\n'))
-   f.write('   {}'.format("event_id = '{}_{}'.format(run_name,i)"+'\n'))
-
-   if model_par == 'P':
-      f.write('   {}'.format("line = '{} {} {}'.format(1,0,0)"+'\n'))
-   elif model_par == 'S':
-      f.write('   {}'.format("line = '{} {} {}'.format(0,1,0)"+'\n'))
-   elif model_par == 'Qs':
-      f.write('   {}'.format("line = '{} {} {}'.format(0,0,1)"+'\n'))
-   else:
-      print 'model parameter ', model_par, ' unrecognized'
-
-   f.write('   {}'.format("f.write(line+'\\n')"+'\n'))
-   f.write('   {}'.format("line = '{}'.format(20.0)"+'\n'))
-   f.write('   {}'.format("f.write(line+'\\n')"+'\n'))
-   f.write('   {}'.format("line = '{}'.format(event_id)"+'\n'))
-   f.write('   {}'.format("f.write(line+'\\n')"+'\n'))
-   f.write('   {}'.format("line = '{}'.format('Y')"+'\n'))
-   f.write('   {}'.format("f.write(line+'\\n')"+'\n'))
-   f.write('   {}'.format("f.close()"+'\n'))
-   f.write('   {}'.format("subprocess.call(executable+' < '+fname,shell=True)"+'\n'))
-
-def write_run_assemblematrix(param_dict):
-   '''
-   writes the input file for assemblematrixv (in.asm) and runs the program. 
-   in.asm specifies which parameters to invert for, as well as which corrections
-   to apply. everything is set in the file 'inparam_tomo'.  To repeat an inversion
-   which different parameters, manually modify in.asm and rename the output.  
-   '''
-   nevents = param_dict['nevents']
-   run_name = param_dict['run_name']
-
-   f = open('in.asm','w')
-   f.write('{} {} '.format(param_dict['dlnVp'],param_dict['sig_est']))
-   f.write('#invert for dlnVp (y/n), estimated parameter sigma (0.01=1% Vp anomalies \n')
-   f.write('{} {} '.format(param_dict['dlnVs'],param_dict['sig_est']))
-   f.write('#invert for dlnVs (y/n) \n')
-   f.write('{} {} '.format(param_dict['dlnQs'],param_dict['sig_est']))
-   f.write('#invert for dlnQs (y/n) \n')
-   f.write('{} {} '.format(param_dict['use_hypo_corr'],param_dict['hypo_corr_km']))
-   f.write('#hypocenter correction in km \n')
-   f.write('{} {} '.format(param_dict['use_sta_corrTP'],param_dict['sta_corrTP']))
-   f.write('#station correction t-P (s) \n')
-   f.write('{} {} '.format(param_dict['use_sta_corrAP'],param_dict['sta_corrAP']))
-   f.write('#station correction dlnA-P (dimensionless) \n')
-   f.write('{} {} '.format(param_dict['use_origin_corr'],param_dict['origin_corr']))
-   f.write('#origin time correction (s) \n')
-   f.write('{} {} '.format(param_dict['use_evnt_corr'],param_dict['evnt_corr']))
-   f.write('#event correction dlnA-P \n')
-   f.write('{} {} '.format(param_dict['use_sta_corrTS'],param_dict['sta_corrTS']))
-   f.write('#station correction t-S (s) \n')
-   f.write('{} {} '.format(param_dict['use_sta_corrAS'],param_dict['sta_corrAS']))
-   f.write('#station correction dlnA-S \n')
-   f.write('{} {} {} {} '.format(param_dict['use_ellip_corr'],param_dict['use_crust_corr'],
-                                 param_dict['use_elev_corr'],param_dict['use_Qdis_corr']))
-   f.write('#corrections: ellipticity, curst, station elevation, Q-dispersion \n')
-   f.write('inversion \n')
-
-   for i in range(1,nevents+1):
-      matrix_id = run_name+'_{}'.format(i) 
-      f.write('matrixT.{}'.format(matrix_id)+'\n') 
-
-   if param_dict['demean'] == 1:
-      f.write('demean \n')
-
-   f.write('stop')
-
 def write_inmpisolve(run_name='inversion',**kwargs):
    chi2 = kwargs.get('chi2',0.0)   
    ksmooth = kwargs.get('ksmooth',1)
@@ -901,20 +813,117 @@ def write_mpisubmit():
    f.write('#PBS -V \n')
    f.write('mpirun -np 16 '+executable+' < in.mpisolvetomo > out.mpisolvetomo')
 
-def write_doit(run_inversion=False,tt_from_raydata=True):
+def write_doit(param_dict,run_inversion=False,tt_from_raydata=True):
    assemblematrix_exe = '/geo/home/romaguir/globalseis/bin/assemblematrixv'
    f = open('doit','w')
    f.write('#!/bin/bash \n')
-   f.write('python run_raydata.py \n')
+   f.write('{} {}'.format('runraydata',param_dict['run_name'])+'\n')
    if tt_from_raydata:
       f.write('/geo/home/romaguir/globalseis/bin/tt_from_raydata \n')
-      f.write('python run_raydata.py \n')
+      f.write('{} {}'.format('runraydata',param_dict['run_name'])+'\n')
       f.write('rm tt_out* \n')
       f.write('rm xcor* \n')
-   f.write('python run_voxelmatrix.py \n')
-   f.write(assemblematrix_exe+' < in.asm \n')
-
+   if param_dict['inv_param'] == 'Vp':
+      f.write('{} {} {}'.format('runvoxelmatrix',param_dict['run_name'],'P') +'\n')
+   elif param_dict['inv_param'] == 'Vs':
+      f.write('{} {} {}'.format('runvoxelmatrix',param_dict['run_name'],'S') +'\n')
+   elif param_dict['inv_param'] == 'Qs':
+      f.write('{} {} {}'.format('runvoxelmatrix',param_dict['run_name'],'Qs') +'\n')
+   if param_dict['inv_param'] == 'Vp':
+      f.write('{} {} {}'.format('runassemblematrix','P','inversion') +'\n')
+   elif param_dict['inv_param'] == 'Vs':
+      f.write('{} {} {}'.format('runassemblematrix','S','inversion') +'\n')
+   elif param_dict['inv_param'] == 'Qs':
+      f.write('{} {} {}'.format('runassemblematrix','Qs','inversion') +'\n')
    if run_inversion:
       f.write('qsub submit_mpisolve.qsub \n')
 
    subprocess.call('chmod +x doit',shell=True)
+
+def rotate_earthquake_list(earthquake_list,s1,s2,filename):
+   f = np.loadtxt(earthquake_list)
+   event_num = f[:,0]
+   lon = f[:,1]
+   lat = f[:,2]
+   depth = f[:,3]
+   colat = 90.0 - lat
+   colat_rotated = np.zeros(len(colat))
+   lon_rotated = np.zeros(len(lon))
+
+   s1_c = copy.deepcopy(s1)
+   s2_c = copy.deepcopy(s2)
+   n = find_rotation_vector(s1_c,s2_c)
+   s1_c = copy.deepcopy(s1)
+   s2_c = copy.deepcopy(s2)
+   phi = find_rotation_angle(s1_c,s2_c) 
+   print n,phi
+
+   for i in range(0,len(event_num)):
+      coors = rotate_coordinates(n=n,phi=phi,colat=colat[i],lon=lon[i]) 
+      colat_rotated[i] = coors[0]
+      lon_rotated[i] = coors[1]
+
+   lat_rotated = 90.0-colat_rotated
+
+   fout = open(filename,'w')
+   for i in range(0,len(event_num)):
+      fout.write('{} {} {} {}'.format(i+1,lon_rotated[i],lat_rotated[i],depth[i])+'\n')
+
+def rotate_station_list(station_list,s1,s2,filename):
+   f = np.loadtxt(station_list)
+   lon = f[:,0]
+   lat = f[:,1]
+   colat = 90.0 - lat
+   colat_rotated = np.zeros(len(colat))
+   lon_rotated = np.zeros(len(lon))
+
+   s1_c = copy.deepcopy(s1)
+   s2_c = copy.deepcopy(s2)
+   n = find_rotation_vector(s1_c,s2_c)
+   s1_c = copy.deepcopy(s1)
+   s2_c = copy.deepcopy(s2)
+   phi = find_rotation_angle(s1_c,s2_c) 
+   print n,phi
+
+   for i in range(0,len(lat)):
+      coors = rotate_coordinates(n=n,phi=phi,colat=colat[i],lon=lon[i]) 
+      colat_rotated[i] = coors[0]
+      lon_rotated[i] = coors[1]
+
+   lat_rotated = 90.0-colat_rotated
+
+   fout = open(filename,'w')
+   for i in range(0,len(lat)):
+      fout.write('{} {}'.format(lon_rotated[i],lat_rotated[i])+'\n')
+
+def plot_delays_file(delays_file,phase='S',period='10.0'):
+   f = h5py.File(delays_file,'r')
+   seismic_phase = f[phase]
+   distances = seismic_phase.keys()
+   for distance in distances:
+      fig_title = 'phase = {}, $\Delta = $ {}'.format(phase,distance)
+      points = seismic_phase[distance][period].value
+      points = points.T
+      plt.scatter(points[:,0],points[:,1],c=points[:,2])
+      plt.colorbar()
+      plt.title(fig_title) 
+      plt.show()
+
+def edit_delays_file(delays_file,phase,ep_dist,lat,lon,new_val,period='10.0'):
+   f = h5py.File(delays_file,'r+')
+   fmt_string = phase+'/'+ep_dist+'/'+period
+   delays = f[fmt_string].value
+   lons = delays[0,:]
+   lats = delays[1,:]
+   vals = delays[2,:]
+   print delays
+   print 'MIN/MAX = ',min(vals),max(vals)
+   for i in range(0,len(lons)):
+      if lons[i] == lon and lats[i] == lat:
+         vals[i] = new_val
+         print 'CHANGED A VALUE TO ',new_val
+   print 'MIN/MAX = ',min(vals),max(vals)
+   new_dset = np.array((lons,lats,vals))
+   del f[fmt_string]
+   dset = f.create_dataset(fmt_string,data=new_dset)
+   f.close()

@@ -1,55 +1,34 @@
 #Inputs for setup tomo
 
 #Run info------------------------------------------------------------------------
-run_name:          ring2_test
-delays_file:       /geo/home/romaguir/Documents/plume_delay_library/C200_delays.h5py
-phase:             S
+run_name:          test4
+delays_file:       /geo/home/romaguir/Documents/plume_delay_library/cyl_r100_delays_specfem.h5py
+phase:             S,SKS
 nperiods           1 #if more than one period, list periods below separated by a comma (10,15,25)
 period(s):         10.0
 taup_model:        iasp91 #model used to calculated 1d travel times
 ray_theory:        False
 t_sig:             0.1
 add_noise:         True
+inv_param:         Vs #which parameter is used in the inversion (Vs, Vp, Qp, Qs)
 
 #Event info----------------------------------------------------------------------
-event_geometry     ring2 #'random', 'ring', or 'single'  (so far only random has been tested)
-nevents:           20     #if event_geometry is 'random'
-delta_min:         45     #if event_geometry is 'random'
-delta_max:         80     #if event_geometry is 'random'
-ringdist:          40,50,60,70   #ring distance from (0,0) in degrees. if using multiple specify as tuple
+event_geometry     ring #'random', 'ring', or 'single'  (so far only random has been tested)
+events_file        xxx   #if event_geometry is 'read', provide name of file
+nevents:           5     #if event_geometry is 'random'
+delta_min:         60     #if event_geometry is 'random'
+delta_max:         85     #if event_geometry is 'random'
+ringdist:          77   #ring distance from (0,0) in degrees. if using multiple specify as tuple
 dtheta:            30     #angular spacing between stations in ring. given in degrees
+depth:             400.0    #depth of events (for 'random' or 'ring')
 
 #Station info--------------------------------------------------------------------
-station_geometry:  random #random' or 'grid'
+station_geometry:  read #random' or 'grid' or 'read'
+stations_file      Hawaii_grid_1000x1000km_rotated_dx100.dat #if station_geometry is 'read', provide name of file
 nstations:         50
-latmin:            -28
-laxmax:            28
-lonmin:            -28
-lonmax:            28
-dlat:              1
-dlon:              1
-
-#Inversion settings--------------------------------------------------------------
-dlnVp:             0 #invert for Vp 
-dlnVs:             1 #invert for Vs
-dlnQs:             0 #invert for Qs
-sig_est:           0.01 #estimated order of magnitude of perturbations (0.01 = 1%)
-use_hypo_corr:     0 #use hypocenter correction?
-hypo_corr_km:      20.0 #maximum hypocenter correction (km)
-use_sta_corrTP:    0 #use station correction (t-P)?
-sta_corrTP:        1.0 #maximum station correction (s)
-use_sta_corrAP:    0 #use station correction (dlnA - P)?
-sta_corrAP:        1.0 #maximum station correction (dimenstionless)
-use_origin_corr:   0 #include correction for event origin time?
-origin_corr:       1.0 #maximum correction for event origin time (s)
-use_evnt_corr:     0 #use event correction (dlnVa - P)?
-evnt_corr:         0.0 #maximum event correection (dimensionless)
-use_sta_corrTS:    0 #use station correction (t - S)
-sta_corrTS:        1.0 #maximum station correction (s)
-use_sta_corrAS:    0 #use station correction (dlnVa - S) 
-sta_corrAS:        1.0 # maximum station correction (dimensionless)
-use_ellip_corr:    0 #use ellipticity correction?
-use_crust_corr:    0 #use crustal correction?
-use_elev_corr:     0 #use station elevation correction?
-use_Qdis_corr:     0 #use Q-dispersion correction?
-demean:            1 #demean the data?
+latmin:            -20
+laxmax:            20
+lonmin:            -20
+lonmax:            20
+dlat:              2
+dlon:              2

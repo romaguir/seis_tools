@@ -234,3 +234,17 @@ def data_downloader(save_directory,**kwargs):
       ste.write(filename=save_directory+'/'+event_output_name+'_BHE.pk',format='PICKLE')
       stn.write(filename=save_directory+'/'+event_output_name+'_BHN.pk',format='PICKLE')
       stz.write(filename=save_directory+'/'+event_output_name+'_BHZ.pk',format='PICKLE')
+
+def filter_catalog(catalog,lon0,lat0,minrad,maxrad):
+   temp_events = []
+   for ev in catalog:
+      ev_lat = ev.origins[0]['latitude']
+      ev_lon = ev.origins[0]['longitude']
+      distaz = gps2dist_azimuth(ev_lat,ev_lon,lat0,lon0)
+      dist_m = distaz[0]
+      dist_deg = kilometer2degrees((dist_m/1000.0))
+      if dist_deg >= minrad and dist_deg <= maxrad:
+         temp_events.append(ev)
+   cat = Catalog(events=temp_events)
+   return cat
+

@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from scipy.ndimage.filters import gaussian_filter
 from obspy.core.util.geodetics import kilometer2degrees
 from seis_tools.models.models_3d import model_3d
+from seis_tools.models import models_1d
+from scipy.interpolate import interp1d
 
 class velocity_model(object):
 
@@ -372,7 +374,7 @@ class velocity_model(object):
       self.dvs_rel = gaussian_filter(self.dvs_rel,sigma=[sigma_blur_vert,sigma_blur])
       self.drho_rel = gaussian_filter(self.drho_rel,sigma=[sigma_blur_vert,sigma_blur])
 
-   def plot_field(self,type='abs',contour=True):
+   def plot_field(self,type='abs',contour=True,**kwargs):
       '''
       imshow plots the vp, vs, and density fields.
     
@@ -380,7 +382,12 @@ class velocity_model(object):
       type - can be one of I) 'abs'      (absolute values of fields)
                           II) 'abs_diff' (absolute values of perturbations)
                          III) 'rel_diff' (percent perturbations)
+      kwargs:
+      savefig - save figure 
+      figname - name of figure
       '''
+      savefig = kwargs.get('savefig',False)
+      figname = kwargs.get('figname','model.png')
       assert len(self.vp_array) != 1
 
       if type=='abs':
@@ -428,7 +435,11 @@ class velocity_model(object):
          axes[0].contour(vp_field,v,colors='k',alpha=0.5)
          axes[1].contour(vs_field,v,colors='k',alpha=0.5)
          axes[2].contour(rho_field,v,colors='k',alpha=0.5)
-      plt.show()
+
+      if savefig:
+         plt.savefig(figname)
+      else:
+         plt.show()
 
    def scale_T(self, sf=1.0):
       self.T *= sf
@@ -706,6 +717,12 @@ class velocity_model(object):
                                                       dr_unit,self.npts_theta,self.npts_rad)
       #'''
       return dvp3d,dvs3d,drho3d
+
+   def prem_pressure_to_depth(self):
+      prem = models_1d.prem()
+      interp_r = interp1d(prem.p,prem.r)
+      self.rad_km = interp_r(self.P1d*1e5)
+      self.rad_km[0] = 6371.0
                   
 
 def polar_2_cart(radius,theta,theta_deg=True):

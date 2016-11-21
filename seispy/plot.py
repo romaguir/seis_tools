@@ -26,6 +26,7 @@ from mpl_toolkits.basemap import Basemap
 from cycler import cycler
 import multiprocessing
 import shutil
+from seis_tools.seispy.filter import equator_filter
 model = TauPyModel(model="prem")
 
 def precursor_PKIKP(seis_stream_in,precursor_onset,time_offset,name=False):
@@ -881,3 +882,34 @@ def sort_by_gcarc(st):
         tr.stats.gcarc = tr.stats.sac['gcarc']
     st.sort(keys=['gcarc'])
     return st
+
+def specfem_compare_record_sections(model1,model2,phase='S'):
+   '''
+   args:
+      model1, model2 = paths to model directory
+      phase: If 'S' reads N/S seismograms, if 'P' reads vertical seismograms
+   '''
+   if phase == 'S':
+      st1 = obspy.read(model1+'/stn.pk')
+      st2 = obspy.read(model2+'/stn.pk')
+   elif phase == 'P':
+      st1 = obspy.read(model1+'/stz.pk')
+      st2 = obspy.read(model2+'/stz.pk')
+   elif phase == 'SKS':
+      st1 = obspy.read(model1+'/ste.pk')
+      st2 = obspy.read(model2+'/ste.pk')
+
+   equator_filter(st1)
+   equator_filter(st2)
+
+   st1.filter('lowpass',freq=1/10.0)
+   st2.filter('lowpass',freq=1/10.0)
+
+   st1.normalize()
+   st2.normalize()
+
+   #plot first model
+   ax = section(st1,shift=True,flip_axes=True,color='black',showplot=False,phase_list=['P','S','SKS'])
+
+   #plot second model
+   section(st2,axis=ax,shift=True,flip_axes=True,color='red',showplot=True)

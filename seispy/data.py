@@ -18,6 +18,12 @@ def phase_window(tr,phases,window_tuple,taup_model=model):
     time = taup_model.get_travel_times(source_depth_in_km = tr.stats.sac['evdp'],
                                        distance_in_degree = tr.stats.sac['gcarc'],
                                        phase_list = phases)
+    debug = False
+
+    if debug:
+       print 'phases asked for : ', phases, 'at distance ',tr.stats.distance
+       print 'arrivals : ',time
+
     t = origin_time + time[0].time
 
     windowed_tr = tr.slice(start+t+window_tuple[0],start+t+window_tuple[1])

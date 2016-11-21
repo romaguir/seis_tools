@@ -94,4 +94,14 @@ def find_rotation_angle(s1,s2,degrees=True):
       return np.degrees(np.arccos(np.clip(np.dot(x1,x2),-1.0,1.0)))
    else:
       return np.arccos(np.clip(np.dot(x1,x2),-1.0,1.0))
-   
+
+def km_per_deg_lon(latitude):
+   '''
+   returns how many km there are per degree of longitude, at a given latitude
+
+   args:
+       latitude: latitude in degrees
+   '''
+   latitude = np.radians(latitude)
+   km_per_deg = (2*np.pi*6371.0*np.cos(latitude))/360.0
+   return km_per_deg

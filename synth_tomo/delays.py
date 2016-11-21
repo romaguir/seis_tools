@@ -43,7 +43,11 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
    filter_type = kwargs.get('filter_type','bandpass')
    plot = kwargs.get('plot',False)
    taup_model = kwargs.get('taup_model','default')
-   print 'window = ', window, 'distance_range = ', distance_range, 'plot = ', plot
+
+   debug = False
+
+   if debug:
+      print 'window = ', window, 'distance_range = ', distance_range, 'plot = ', plot
 
    #open h5py file---------------------------------------------------------------
    if os.path.isfile(h5py_file):
@@ -60,7 +64,7 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
       except(IOError):
          st1 = obspy.read(background_model+'stz.pk')
          st2 = obspy.read(plume_model+'stz.pk')
-   elif phase == 'S':
+   elif phase == 'S' or phase == 'SS':
       try:
          st1 = obspy.read(background_model+'st_N.pk')
          st2 = obspy.read(plume_model+'st_N.pk')
@@ -75,14 +79,16 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
          st1 = obspy.read(background_model+'ste.pk')
          st2 = obspy.read(plume_model+'ste.pk')
 
-   print st1,st2
+   if debug:
+      print st1,st2
 
-   st1 = filter.range_filter(st1,distance_range)
-   st2 = filter.range_filter(st2,distance_range)
+   #st1 = filter.range_filter(st1,distance_range)
+   #st2 = filter.range_filter(st2,distance_range)
    st1.sort()
    st2.sort()
 
-   print 'streams after range filter ',st1,st2
+   if debug:
+      print 'streams after range filter ',st1,st2
    
    sampling_rate = st1[0].stats.sampling_rate
    st1.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=2)
@@ -100,14 +106,25 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
       phase_list = ['S','Sdiff','s']
    elif phase == 'SKS':
       phase_list = ['SKS']
+   elif phase == 'SS':
+      phase_list = ['SS']
  
-   print st1,st2
-   for j in range(0,len(st1)):
-      delay = cross_cor(st1[j],st2[j],phase=phase_list,window=window,taup_model=taup_model)
-      print delay
-      x.append(st1[j].stats.sac['stlo'])
-      y.append(st1[j].stats.sac['stla'])
-      delays.append(delay)
+   if debug:
+      print st1,st2
+
+   for i in range(0,len(st1)):
+      dist = st1[i].stats.sac['gcarc']
+
+      #if the epicentral distance is outside of the range of the phase, delay is zero
+      if dist <= distance_range[0] or dist >= distance_range[1]:
+         x.append(st1[i].stats.sac['stlo'])
+         y.append(st1[i].stats.sac['stla'])
+         delays.append(0.0)
+      else:
+         delay = cross_cor(st1[i],st2[i],phase=phase_list,window=window,taup_model=taup_model)
+         x.append(st1[i].stats.sac['stlo'])
+         y.append(st1[i].stats.sac['stla'])
+         delays.append(delay)
 
    lons = np.array(x)
    lats = np.array(y)
