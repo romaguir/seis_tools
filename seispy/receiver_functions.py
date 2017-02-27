@@ -6,7 +6,7 @@ from data import phase_window
 from data import align_on_phase
 from obspy.taup import TauPyModel
 from obspy.signal import rotate
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d,interp2d
 from mpl_toolkits.basemap import Basemap
 from seis_tools.decon.water_level import water_level
 from seis_tools.decon.damped_lstsq import damped_lstsq
@@ -929,25 +929,21 @@ def get_deltaT_from_deltaZ(boundary,deflection):
    g = 9.82 
 
    if boundary==410:
-       rho_gcm3 = prem.get_rho(410)
-       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+       rho_kgm3 = prem.get_rho(410)
        layer_weight = (rho_kgm3 * g * deltaZ) / 1e6 #pressure in MPa
 
        keys = Clap410.keys()
        for key in keys:
           deltaT = layer_weight / Clap410[key]
-          #deltaT = Clap410[key]*layer_weight
           print 'Delta T from ', key, 'using Clapyeron slopes of ', Clap410[key], ': ',deltaT
 
    elif boundary==660:
-       rho_gcm3 = prem.get_rho(660)
-       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+       rho_kgm3 = prem.get_rho(660)
        layer_weight = (rho_kgm3 * g * deltaZ) / 1e6 #pressure in MPa
 
        keys = Clap660.keys()
        for key in keys:
           deltaT = layer_weight / Clap660[key]
-          #deltaT = Clap660[key] * layer_weight
           print 'Delta T from ', key, 'using Clapyeron slopes of ', Clap660[key], ': ',deltaT
 
    else:
@@ -976,8 +972,7 @@ def get_deltaZ_from_deltaT(boundary,deltaT):
    g = 9.82 
 
    if boundary==410:
-       rho_gcm3 = prem.get_rho(410)
-       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+       rho_kgm3 = prem.get_rho(410)
 
        keys = Clap410.keys()
        for key in keys:
@@ -987,8 +982,7 @@ def get_deltaZ_from_deltaT(boundary,deltaT):
           print 'Delta Z from ', key, 'using Clapyeron slopes of ', Clap410[key], 'MPa/K : ',deltaZ, 'km'
 
    elif boundary==660:
-       rho_gcm3 = prem.get_rho(660)
-       rho_kgm3 = rho_gcm3 * 1000.0 #convert from g/cm^3 to kg/m^3
+       rho_kgm3 = prem.get_rho(660)
 
        keys = Clap660.keys()
        for key in keys:
@@ -996,3 +990,82 @@ def get_deltaZ_from_deltaT(boundary,deltaT):
           km_per_MPa = 1000.0/(rho_kgm3*g)
           deltaZ = MPa * km_per_MPa
           print 'Delta Z from ', key, 'using Clapyeron slopes of ', Clap660[key], 'MPa/K : ',deltaZ, 'km'
+
+def delay_and_sum_rfs(rfs,conversion_depth,**kwargs):
+   '''
+   Takes a list of receiver function objects and stacks along the
+   moveout of a given phase.
+
+   args-------------------------------------------------------
+   rfs:     receiver function stream
+   conversion_depth: depth of the P to S conversion
+   phase:   string, phase name for which to apply moveout correction
+
+   kwargs-----------------------------------------------------
+   ref_deg: reference degree for the moveout correction
+   taup_model_name: name of taup model
+   table:   location of pds moveout correction lookup table
+   '''
+   ref_deg = kwargs.get('ref_deg',64.0)
+   taup_model_name = kwargs.get('taup_model_name','prem')
+   table = kwargs.get('table','/geo/work10/romaguir/projects/usarray_rfs/data/moveout_lookup_tables/pds_moveout_slowness_vs_depth.dat')
+   taup_model = TauPyModel(taup_model_name)
+   n_in_stack = 0
+   stack = 0
+
+   with open(table) as f:
+      line = f.readline() #1st line is junk
+      line = f.readline() #2nd line is junk
+      line = f.readline() #3rd line: min slowness, max slowness, slowness spacing (s/deg)
+      p_min = float(line.split(',')[0])
+      p_max = float(line.split(',')[1])
+      dp = float(line.split(',')[2].strip())
+      line = f.readline() #4th line is junk
+      line = f.readline() #5th line is min depth, max depth, depth spacing (km)
+      d_min = float(line.split(',')[0])
+      d_max = float(line.split(',')[1])
+      dz = float(line.split(',')[2].strip())
+   f.close()
+
+   f = np.loadtxt(table,skiprows=5) #first 5 rows are header information
+   p_pts = f[:,0] #slowness (s/deg)
+   d_pts = f[:,1] #conversion depth (km)
+   t_pts = f[:,2] #moveout of pds phase relative to reference pds at 6.4 s/deg
+   d_axis = np.arange(d_min,d_max+dz,dz)
+   p_axis = np.arange(p_min,p_max+dp,dp)
+   t_array = np.reshape(t_pts,(len(d_axis),len(p_axis)))
+
+   find_tshift = interp2d(p_axis,d_axis,t_array)
+   for rf in rfs:
+      #rf.shift(phase=Phase)
+      '''
+      t_ref = taup_model.get_travel_times(source_depth_in_km=rf.stats.evdp,
+			                  distance_in_degree=ref_deg,
+			                  phase_list=["P",phase])
+      t_arr = taup_model.get_travel_times(source_depth_in_km=rf.stats.evdp,
+				          distance_in_degree=rf.stats.gcarc,
+			                  phase_list=["P",phase])
+      for arr in t_ref:
+         if arr.name=='P':
+            p_arrival_ref = arr.time
+         elif arr.name==phase:
+            pds_arrival_ref = arr.time
+
+      for arr in t_arr:
+         if arr.name=='P':
+            p_arrival = arr.time
+         elif arr.name==phase:
+            pds_arrival = arr.time
+      '''
+      time_shift = find_tshift(rf.stats.ray_param,conversion_depth)
+      time_shift *= -1.0
+
+      dt = 1.0/rf.stats.sampling_rate
+      #time_shift = (pds_arrival_ref-p_arrival_ref)-(pds_arrival-p_arrival)
+      int_shift  = int(time_shift/dt)
+      rf_data = np.roll(rf.data,int_shift)
+      stack += rf_data #don't actually roll the data of the trace
+      n_in_stack +=1
+      #print n_in_stack, ' stacked'
+   stack /= n_in_stack
+   return stack

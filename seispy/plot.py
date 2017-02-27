@@ -909,7 +909,7 @@ def specfem_compare_record_sections(model1,model2,phase='S'):
    st2.normalize()
 
    #plot first model
-   ax = section(st1,shift=True,flip_axes=True,color='black',showplot=False,phase_list=['P','S','SKS'])
+   ax = section(st1,shift=True,flip_axes=True,color='black',showplot=False,phase_list=['P','S','SKS','ScS'])
 
    #plot second model
    section(st2,axis=ax,shift=True,flip_axes=True,color='red',showplot=True)

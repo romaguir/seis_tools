@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interpn
 from scipy.interpolate import interp1d
 from seis_tools.models import models_1d
+from seis_tools.seispy.misc import find_rotation_vector
 
 # 3D_model_class
 class model_3d(object):
@@ -60,6 +61,36 @@ class model_3d(object):
       self.dlat = dlat
       self.dlon = dlon
       self.drad = drad
+
+   def rotate_3d(self,destination):
+      '''
+      solid body rotation of the mantle with respect to the surface.
+      rotates the south pole to the specfied destination.
+
+      args:
+          destination: (lat,lon)
+      '''
+      s1 = (6371, 180, 0)
+      s2 = (6371, 90-lat, lon)
+      rotation_vec = find_rotation_vector(s1,s2)
+      rotation_angle = find_rotation_angle(s2,s2)
+      rotated_data = np.zeros(self.data.shape)
+      for i in range(0,len(self.rad)):
+          for j in range(0,len(self.colat)):
+              for k in range(0,len(self.lon)):
+                  old_coors = [self.rad[i],self.colat[j], self.lon[k]]
+                  transformed_coors = rotate_coordinates(n=rotation_vec,
+                                                         phi=rotation_angle,
+                                                         colat=self.colat[j],
+                                                         lon=self.lon[k])
+                  transformed_colat = transformed_coors[0]
+                  transformed_lon = transformed_coors[1]
+                  rotated_data[i,j,k] = self.probe_data(rad,lat,lon)
+                  rotated_data[i,j,k] = self.probe_data(self.rad[i],
+                                                        90-self.lat[j],
+                                                        self.lon[k])
+      
+      self.data = rotated_data
 
    def plot_3d(self,**kwargs):
       '''
@@ -307,10 +338,10 @@ def write_specfem_ppm(dvs_model3d,dvp_model3d,drho_model3d,**kwargs):
 
 def write_s40_filter_inputs(model_3d,**kwargs):
    '''
-   takes in a 3d writes out the input files for the S40RTS tomographic filter.
+   takes in a 3d model and writes out the input files for the S40RTS tomographic filter.
    
    params:
-   model3d: instance of the model_3d class
+   model_3d: instance of the model_3d class
 
    kwargs:
    n_layers: number of layers (i.e, spherical shells).

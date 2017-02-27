@@ -129,22 +129,38 @@ def plot_vtk_slice(vtk_slice,theta_range=[0,360],depth_range=[0,2885],**kwargs):
             
    gmt.save(fname)
 
-def extract_tomo_profile(filename,delta):
+def extract_tomo_profile(filename,delta,**kwargs):
    '''  
    Takes in an xyz slice of a tomographic model (example output of crossect_180), and 
    returns a depth profile at a specified arc distance, delta.
    '''  
-   slice = np.loadtxt(filename)
+   middle = kwargs.get('middle',False)
+
+   try:
+      slice = np.loadtxt(filename)
+   except ValueError:
+      slice = np.loadtxt(filename,skiprows=1)
+
    x = slice[:,0]
    y = slice[:,1]
    z = slice[:,2]
    rad = []
    val = []
 
-   for i in range(0,len(x)):
-      if x[i] == delta:
-         rad.append(y[i])
-         val.append(z[i])
+   if middle:
+      x_0 = x[0]
+      x_e = x[::-1][0]
+      x_m = (x_0 + x_e)/2.0
+      print 'x_0,x_e,x_m',x_0,x_e,x_m
+      for i in range(0,len(x)-1):
+         if x[i] <= x_m and x[i+1] > x_m:
+            rad.append(y[i])
+            val.append(z[i])
+   else:
+      for i in range(0,len(x)):
+         if x[i] == delta:
+            rad.append(y[i])
+            val.append(z[i])
 
    return np.array((rad,val))
 

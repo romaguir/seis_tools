@@ -37,6 +37,8 @@ class velocity_model(object):
       self.T_adiabat    = np.zeros(1)
       self.T_plume_axis = np.zeros(1)
       self.pot_T = 0
+      #delta T relative to adiabat (K)
+      self.delta_T      = np.zeros((1,1))
 
       #
       self.P1d   = np.zeros(1)
@@ -66,7 +68,7 @@ class velocity_model(object):
       self.P1d = ad[:,1]
       self.pot_T = self.T_adiabat[0]
 
-   def read_T_snapshot(self,snapshot='none'):
+   def read_T_snapshot(self,snapshot='none',give_adiabat=False,adiabat_file='none'):
       '''
       Reads in temperature snapshot that has been generated from sepran postprocessing.
    
@@ -81,6 +83,7 @@ class velocity_model(object):
       self.dpr_dim    = 10.0278
 
       self.T = np.zeros((self.npts_rad,self.npts_theta))
+      self.delta_T = np.zeros((self.npts_rad,self.npts_theta))
 
       k = 0
       for i in range(0,self.npts_rad):
@@ -89,7 +92,25 @@ class velocity_model(object):
             k+=1
 
       self.T_adiabat    = self.T[:,(self.npts_theta-1)]
-      self.T_plume_axis = self.T[:,(self.npts_theta-1)]
+      self.T_plume_axis = self.T[:,0]
+
+      if give_adiabat:
+         ad_file = np.loadtxt(adiabat_file)
+         ad_vec = ad_file[:,2]
+         ad_vec += 273.15
+         ad_T = np.zeros((self.npts_rad,self.npts_theta)) 
+         k = 0
+         for i in range(0,self.npts_rad):
+            for j in range(0,self.npts_theta):
+               ad_T[(self.npts_rad-1)-i,j] = ad_vec[k]
+               k+=1
+
+         self.T_adiabat    = ad_T[:,(self.npts_theta-1)]
+
+      #get delta T
+      for i in range(0,self.npts_rad):
+         for j in range(0,self.npts_theta):
+            self.delta_T[i,j] = self.T[i,j] - self.T_adiabat[i]
 
    def read_lookup_table(self,composition='pyrolite',lookup_table='none',**kwargs):
       '''
@@ -314,7 +335,7 @@ class velocity_model(object):
       self.T = filtered
       #self.T = T_here
 
-   def constant_cylinder(self,radius,dvp=-5.0,dvs=-5.0,drho=-1.0,start_depth=100.0,**kwargs):
+   def constant_cylinder(self,radius,dvp=-5.0,dvs=-5.0,drho=-1.0,start_depth=100.0,end_depth=2800.0,**kwargs):
       '''
       generates a cylindrical anomaly with constant perturbation in Vp, Vs, and density
       use this *after* running 'velocity_conversion'
@@ -359,7 +380,7 @@ class velocity_model(object):
             th_here      = self.theta[j]
             depth_here   = 6371.0 - self.rad_km[i]
 
-            if th_here <= cyl_th_here and depth_here > start_depth:
+            if th_here <= cyl_th_here and depth_here > start_depth and depth_here < end_depth:
                self.dvp_abs[(self.npts_rad-1)-i,j] += dvp_abs
                self.dvs_abs[(self.npts_rad-1)-i,j] += dvs_abs
                self.drho_abs[(self.npts_rad-1)-i,j] += drho_abs
@@ -974,3 +995,52 @@ def bm_to_tvel(name):
    for i in range(0,len(depth_km)):
       out_file.write('{:6.4f} {:6.4f} {:6.4f} {:6.4f}'.format(depth_km[i],vp_kms2[i],vs_kms2[i],rho_gcm3[i]))
       out_file.write('\n')
+
+def write_plume_gmt_files(velocity_model,plume_name,remove_noise=True,theta_max='none',depth_max='none'):
+   '''
+   writes files for plotting delta T, delta Vs plots in GMT
+
+   args:
+      velocity_model: an instance of the velocity_model class
+      plume_name: what to call the output files
+      remove_noise: removes positive values of dVs and negative values of delta T
+      theta_max: if not = 'none', then it will truncate plume at a given value theta
+      depth_max: if not = 'none', then truncate plume below given depth (km)
+   '''
+   fout1 = open(plume_name+'_dT.dat','w')
+   fout2 = open(plume_name+'_dVs.dat','w')
+ 
+   if remove_noise:
+      for i in range(0,velocity_model.npts_rad):
+         for j in range(0,velocity_model.npts_theta):
+            if velocity_model.dvs_rel[i,j] > 0:
+               velocity_model.dvs_rel[i,j] = 0
+            if velocity_model.delta_T[i,j] < 0:
+               velocity_model.delta_T[i,j] = 0
+
+   if theta_max != 'none':
+      for i in range(0,velocity_model.npts_rad):
+         for j in range(0,velocity_model.npts_theta):
+            if velocity_model.theta[j] > theta_max:
+               velocity_model.dvs_rel[i,j] = 0.0
+               velocity_model.delta_T[i,j] = 0.0
+
+   if depth_max != 'none':
+      rad_trunc = 6371.0-depth_max
+      for i in range(0,velocity_model.npts_rad):
+         for j in range(0,velocity_model.npts_theta):
+             if velocity_model.rad_km[::-1][i] < rad_trunc:
+               velocity_model.dvs_rel[i,j] = 0.0
+               velocity_model.delta_T[i,j] = 0.0
+
+   for i in range(0,velocity_model.npts_rad):
+       for j in range(0,velocity_model.npts_theta):
+          fout1.write('{} {} {}'.format(velocity_model.theta[j]+90.0,
+                                        velocity_model.rad_km[::-1][i],
+                                        velocity_model.delta_T[i,j])+'\n')
+          fout2.write('{} {} {}'.format(-1.0*velocity_model.theta[j]+90.0,
+                                        velocity_model.rad_km[::-1][i],
+                                        velocity_model.dvs_rel[i,j])+'\n')
+
+   fout1.close()
+   fout2.close()

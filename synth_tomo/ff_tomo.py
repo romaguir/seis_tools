@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
 #from obspy.core.util.geodetics import gps2DistAzimuth
 from obspy.core.util.geodetics import calcVincentyInverse
-from obspy.core.util.geodetics import gps2dist_azimuth
-from obspy.core.util.geodetics import kilometer2degrees
+#from obspy.core.util.geodetics import gps2dist_azimuth
+#from obspy.core.util.geodetics import kilometer2degrees
 from seis_tools.ses3d.rotation import rotate_coordinates
 from scipy.signal import iirfilter, lfilter, freqz
 from obspy.taup import TauPyModel
@@ -23,6 +23,15 @@ from geopy.distance import VincentyDistance
 from seis_tools.seispy.misc import find_rotation_angle,find_rotation_vector
 import geopy
 import glob
+
+try:
+    from obspy.geodetics import gps2dist_azimuth
+except ImportError:
+    from obspy.core.util.geodetics import gps2DistAzimuth as gps2dist_azimuth
+try:
+   from obspy.geodetics import kilometer2degrees
+except ImportError:
+   from obspy.core.util.geodetics import kilometer2degrees
 
 def make_station_list(param_dict,plot=True,**kwargs):
    '''
@@ -329,7 +338,7 @@ def get_event_params(eq_lat,eq_lon):
 
    return dist_deg,rotation_angle
 
-def get_filter_params(delays_file,phase,Tmin):
+def get_filter_params(delays_file,phase,Tmin,**kwargs):
    '''
    returns the filter parameters used for cross correlation delay measurements
 
@@ -338,15 +347,27 @@ def get_filter_params(delays_file,phase,Tmin):
    phase: 'P' or 'S'
    Tmin: minimum period (string, e.g., '10.0')
    '''
+   filter_type = kwargs.get('filter_type','none')
    if os.path.isfile(delays_file):
       f = h5py.File(delays_file)
 
    key_list = f[phase].keys()
    data = f[phase][key_list[0]][Tmin]
-   filter = data.attrs['filter']
-   freqmin = data.attrs['freqmin']
-   freqmax = data.attrs['freqmax']
-   window = data.attrs['window']
+
+   if filter_type == 'none':
+      filter = data.attrs['filter']
+   else:
+      filter = filter_type
+
+   #ghetto fix to key problem with an h5py file
+   try:
+      freqmin = data.attrs['freqmin']
+      freqmax = data.attrs['freqmax']
+      window = data.attrs['window']
+   except KeyError:
+      freqmin = 1/10.0
+      freqmax = 1/25.0
+      window = np.array([-20.0,20.0])
 
    return filter,freqmin,freqmax,window
 
@@ -362,6 +383,8 @@ def get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate,**kwargs):
    sampling_rate: sampling rate of seismograms (in Hz)
    kwargs-------------------------------------------------------------------------
    corners: number of corners used in filter (if bandpass). default = 2
+   std_dev: standard deviation of gaussian filter (in Hz)
+   plot: True or False
 
    returns-----------------------------------------------------------------------
    omega: frequency axis (rad/s)
@@ -369,17 +392,32 @@ def get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate,**kwargs):
    '''
    plot = kwargs.get('plot',False)
    corners = kwargs.get('corners',2)
-   nyquist = 0.5 * sampling_rate
-   fmin = freqmin/nyquist
-   fmax = freqmax/nyquist
+   std_dev = kwargs.get('std_dev',0.1)
+   mid_freq = kwargs.get('mid_freq',1/10.0)
    
    if filter_type == 'bandpass':
+      nyquist = 0.5 * sampling_rate
+      fmin = freqmin/nyquist
+      fmax = freqmax/nyquist
       b, a = iirfilter(corners, [fmin,fmax], btype='band', ftype='butter')
       freq_range = np.linspace(0,0.15,200)
       w, h = freqz(b,a,worN=freq_range)
       omega = sampling_rate * w
       omega_hz = (sampling_rate * w) / (2*np.pi)
       amp = abs(h)
+      
+   elif filter_type == 'gaussian':
+      fmin=freqmin
+      fmax=freqmax
+      omega_hz = np.linspace(0,0.5,200)
+      omega = omega_hz*(2*np.pi)
+      #f_middle_hz = (fmin+fmax)/2.0
+      #f_middle = f_middle_hz*(2*np.pi)
+      f_middle_hz = mid_freq
+      f_middle = f_middle_hz*(2*np.pi)
+      print f_middle_hz,f_middle
+      amp = np.exp(-1.0*((omega-f_middle)**2)/(2*(std_dev**2)))
+      amp = amp/np.max(amp)
 
    if plot:
       fig,axes = plt.subplots(2)
@@ -389,6 +427,9 @@ def get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate,**kwargs):
       axes[1].plot(omega_hz,amp)
       axes[1].set_xlabel('frequency (Hz)')
       axes[1].set_ylabel('amplitude')
+      axes[1].axvline(fmin)
+      axes[1].axvline(fmax)
+      plt.show()
 
    return omega, amp
 
@@ -612,6 +653,7 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
    t_sig = kwargs.get('t_sig',0.0)
    add_noise = kwargs.get('add_noise',False)
    fake_SKS_header = kwargs.get('fake_SKS_header',False)
+   filter_type = kwargs.get('filter_type','none')
 
    ievt=int(ievt) #double check ievt is an integer (in case it was read from a file)
 
@@ -622,7 +664,7 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
 
    #get filter parameters--------------------------------------------------------
    print 'Tmin = ', Tmin
-   filter_type, freqmin,freqmax, window = get_filter_params(delays_file,phase,Tmin)
+   filter_type, freqmin,freqmax, window = get_filter_params(delays_file,phase,Tmin,filter_type=filter_type)
    omega,amp =  get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate)
    window_len = window[1] - window[0]
 
@@ -731,10 +773,23 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       #   phase_list = ['p','P','Pdiff']
 
       ray_theory_arr = tt_model.get_travel_times(eq_dep,event_dist_deg,phase_list=[phase])
+
+      ### TRY TO GET TRAVEL TIME IN CORE #########################################################
+      ray_theory_path = tt_model.get_ray_paths(eq_dep,event_dist_deg,phase_list=[phase])
+      phase_path = ray_theory_path[0]
+      path_time = phase_path.path['time']
+      path_dt = np.diff(path_time)
+      path_depth = phase_path.path['depth']
+      time_in_core = 0
+      for p_i in range(0,len(path_dt)):
+         if path_depth[p_i] >= 2889.0:
+            time_in_core += path_dt[p_i] 
+      ############################################################################################
       if debug:
 	 print '_________________________________________________________________________________'
          print 'arrivals from taup_get_travel_time for event parameters [depth,delta(deg),phase]:'
 	 print '[{},{},{}]'.format(eq_dep,event_dist_deg,phase),ray_theory_arr
+	 print 'time in core: ', time_in_core
 	 print '_________________________________________________________________________________'
 
       ray_theory_travel_time = ray_theory_arr[0].time
@@ -775,12 +830,12 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       
       #write line 4---------------------------------------------------------------
       corcoeft = 1.0 # cross correlation coefficient 
-      f.write('{} {} {} {} {} {}'.format(tobs,t_sig,corcoeft,nbt,window_len,'#tobs,tsig,corcoeft,nbt,window')+'\n') 
+      f.write('{} {} {} {} {} {} {}'.format(tobs,t_sig,corcoeft,nbt,window_len,time_in_core,'#tobs,tsig,corcoeft,nbt,window,tincore')+'\n') 
 
       #write line 5--------------------------------------------------------------
       f.write('{}'.format(0)+'\n')
 
-def write_inmpisolve(run_name='inversion',**kwargs):
+def write_inmpisolve(run_name='alldata',**kwargs):
    chi2 = kwargs.get('chi2',0.0)   
    ksmooth = kwargs.get('ksmooth',1)
    epsnorm = kwargs.get('epsnorm',1.0)
@@ -821,20 +876,18 @@ def write_doit(param_dict,run_inversion=False,tt_from_raydata=True):
    if tt_from_raydata:
       f.write('/geo/home/romaguir/globalseis/bin/tt_from_raydata \n')
       f.write('{} {}'.format('runraydata',param_dict['run_name'])+'\n')
-      f.write('rm tt_out* \n')
-      f.write('rm xcor* \n')
    if param_dict['inv_param'] == 'Vp':
-      f.write('{} {} {}'.format('runvoxelmatrix',param_dict['run_name'],'P') +'\n')
+      f.write('{} {} {}'.format('#runvoxelmatrix',param_dict['run_name'],'P') +'\n')
    elif param_dict['inv_param'] == 'Vs':
-      f.write('{} {} {}'.format('runvoxelmatrix',param_dict['run_name'],'S') +'\n')
+      f.write('{} {} {}'.format('#runvoxelmatrix',param_dict['run_name'],'S') +'\n')
    elif param_dict['inv_param'] == 'Qs':
-      f.write('{} {} {}'.format('runvoxelmatrix',param_dict['run_name'],'Qs') +'\n')
+      f.write('{} {} {}'.format('#runvoxelmatrix',param_dict['run_name'],'Qs') +'\n')
    if param_dict['inv_param'] == 'Vp':
-      f.write('{} {} {}'.format('runassemblematrix','P','inversion') +'\n')
+      f.write('{} {} {}'.format('#runassemblematrix','P','alldata') +'\n')
    elif param_dict['inv_param'] == 'Vs':
-      f.write('{} {} {}'.format('runassemblematrix','S','inversion') +'\n')
+      f.write('{} {} {}'.format('#runassemblematrix','S','alldata') +'\n')
    elif param_dict['inv_param'] == 'Qs':
-      f.write('{} {} {}'.format('runassemblematrix','Qs','inversion') +'\n')
+      f.write('{} {} {}'.format('#runassemblematrix','Qs','alldata') +'\n')
    if run_inversion:
       f.write('qsub submit_mpisolve.qsub \n')
 
@@ -896,19 +949,55 @@ def rotate_station_list(station_list,s1,s2,filename):
    for i in range(0,len(lat)):
       fout.write('{} {}'.format(lon_rotated[i],lat_rotated[i])+'\n')
 
-def plot_delays_file(delays_file,phase='S',period='10.0'):
+def plot_delays_file(delays_file,phase='S',period='10.0',ep_d='all',**kwargs):
+   plot_type = kwargs.get('plot_type','imshow')
    f = h5py.File(delays_file,'r')
    seismic_phase = f[phase]
-   distances = seismic_phase.keys()
-   for distance in distances:
+   if ep_d == 'all':
+      distances = seismic_phase.keys()
+      for distance in distances:
+         fig_title = 'phase = {}, $\Delta = $ {}'.format(phase,distance)
+         points = seismic_phase[distance][period].value
+         points = points.T
+         x = points[:,0]
+         y = points[:,1]
+         dT = points[:,2]
+         l = np.sqrt(len(x))
+         dT = dT.reshape(l,l)
+         if plot_type == 'scatter':
+            plt.scatter(points[:,0],points[:,1],c=points[:,2])
+         elif plot_type == 'imshow':
+            plt.imshow(dT,extent=(x.min(),x.max(),y.min(),y.max()))
+         plt.colorbar()
+         plt.title(fig_title) 
+         plt.show()
+   else:
+      distance = ep_d
       fig_title = 'phase = {}, $\Delta = $ {}'.format(phase,distance)
       points = seismic_phase[distance][period].value
       points = points.T
-      plt.scatter(points[:,0],points[:,1],c=points[:,2])
+      x = points[:,0]
+      y = points[:,1]
+      dT = points[:,2]
+      l = np.sqrt(len(x))
+      dT = dT.reshape(l,l)
+      if plot_type == 'scatter':
+         plt.scatter(points[:,0],points[:,1],c=points[:,2])
+      elif plot_type == 'imshow':
+         plt.imshow(dT,extent=(x.min(),x.max(),y.min(),y.max()))
       plt.colorbar()
-      plt.title(fig_title) 
       plt.show()
+      
 
+def get_delays_from_file(delays_file,phase,ep_dist,period='10.0'):
+   f = h5py.File(delays_file,'r')
+   fmt_string = phase+'/'+ep_dist+'/'+period
+   delays = f[fmt_string].value
+   lons = delays[0,:]
+   lats = delays[1,:]
+   vals = delays[2,:]
+   return lons,lats,vals
+   
 def edit_delays_file(delays_file,phase,ep_dist,lat,lon,new_val,period='10.0'):
    f = h5py.File(delays_file,'r+')
    fmt_string = phase+'/'+ep_dist+'/'+period
