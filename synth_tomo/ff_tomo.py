@@ -23,6 +23,7 @@ from geopy.distance import VincentyDistance
 from seis_tools.seispy.misc import find_rotation_angle,find_rotation_vector
 import geopy
 import glob
+import matplotlib.pyplot as plt
 
 try:
     from obspy.geodetics import gps2dist_azimuth
@@ -1016,3 +1017,50 @@ def edit_delays_file(delays_file,phase,ep_dist,lat,lon,new_val,period='10.0'):
    del f[fmt_string]
    dset = f.create_dataset(fmt_string,data=new_dset)
    f.close()
+
+
+def calculate_ray_coverage(earthquake_list,stations_list,phase='S'):
+   #the earthquake list format is: eq num, eq lon, eq lat, eq dep
+   #the stations list format is: st lon, st lat
+   prem = TauPyModel('prem_5km')
+   depths = np.arange(100,2100,100)
+
+   stations_file = np.loadtxt(stations_list)
+   quakes_file = np.loadtxt(earthquake_list)
+   n_quakes = len(quakes_file)
+   n_stats = len(stations_file)
+   st_lons = quakes_file[:,0]
+   st_lats = quakes_file[:,1]
+   eq_lons = stations_file[:,1]
+   eq_lats = stations_file[:,2]
+   eq_deps = stations_file[:,3]
+
+   for i in range(0,n_quakes):
+      for j in range(0,n_stats):
+
+          arrs = prem.get_pierce_points_geo(source_depth_in_km=eq_deps[i],
+                                            source_latitude_in_deg=eq_lats[i],
+                                            source_logitude_in_deg=eq_lons[i],
+                                            receiver_latitude_in_deg=st_lats[j],
+                                            receiver_longitude_in_deg=st_lons[j],
+                                            phase_list=[phase])
+          arr = arrs[0]
+          pierce_dict = arr.pierce
+          #items in pierce_dict: 'p' (slowness), 'time' (time in s), 'dist', (distance in rad), 'depth' (depth in km)
+
+          geodet = gps2dist_azimuth(eq_lats[i], eq_lons[i], st_lats[j], st_lons[j], a=6371000.0, f=0.0)
+          az = geodet[1]
+
+          origin = geopy.Point(eq_lats[i],eq_lons[i])
+          bearing = az
+
+          geo_path = []
+
+          for ds in pierce_dict:
+             time = ds[1]
+             dist_deg = np.degrees(ds[2])
+             dist_km = dist_deg * ((2*np.pi*6371.0/360.0))
+             geo_pt = VincentyDistance(kilometers=dist_km).destination(origin,bearing)
+             lat_pt = geo_pt[0]
+             lon_pt = geo_pt[1]
+             geo_path.append((lon_pt,lat_pt))
