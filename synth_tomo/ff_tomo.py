@@ -15,7 +15,7 @@ from mpl_toolkits.basemap import Basemap
 #from obspy.core.util.geodetics import gps2DistAzimuth
 from obspy.core.util.geodetics import calcVincentyInverse
 #from obspy.core.util.geodetics import gps2dist_azimuth
-#from obspy.core.util.geodetics import kilometer2degrees
+from obspy.core.util.geodetics import kilometer2degrees
 from seis_tools.ses3d.rotation import rotate_coordinates
 from scipy.signal import iirfilter, lfilter, freqz
 from obspy.taup import TauPyModel
@@ -836,8 +836,8 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       #write line 5--------------------------------------------------------------
       f.write('{}'.format(0)+'\n')
 
-def write_inmpisolve(run_name='alldata',**kwargs):
-   chi2 = kwargs.get('chi2',0.0)   
+def write_inmpisolve(run_name='inversion',**kwargs):
+   chi2 = kwargs.get('chi2',1.0)
    ksmooth = kwargs.get('ksmooth',1)
    epsnorm = kwargs.get('epsnorm',1.0)
    epssmooth = kwargs.get('epssmooth',0)
@@ -867,7 +867,8 @@ def write_mpisubmit():
    f.write('#PBS -l nodes=2:ppn=8,walltime=20:00:00 \n')
    f.write('#PBS -d . \n')
    f.write('#PBS -V \n')
-   f.write('mpirun -np 16 '+executable+' < in.mpisolvetomo > out.mpisolvetomo')
+   f.write('mpirun -np 16 '+executable+' < in.mpisolvetomo > out.mpisolvetomo \n')
+   f.write('rm mat*')
 
 def write_doit(param_dict,run_inversion=False,tt_from_raydata=True):
    assemblematrix_exe = '/geo/home/romaguir/globalseis/bin/assemblematrixv'
@@ -878,17 +879,17 @@ def write_doit(param_dict,run_inversion=False,tt_from_raydata=True):
       f.write('/geo/home/romaguir/globalseis/bin/tt_from_raydata \n')
       f.write('{} {}'.format('runraydata',param_dict['run_name'])+'\n')
    if param_dict['inv_param'] == 'Vp':
-      f.write('{} {} {}'.format('#runvoxelmatrix',param_dict['run_name'],'P') +'\n')
+      f.write('{} {} {}'.format('runvoxelmatrix',param_dict['run_name'],'P') +'\n')
    elif param_dict['inv_param'] == 'Vs':
-      f.write('{} {} {}'.format('#runvoxelmatrix',param_dict['run_name'],'S') +'\n')
+      f.write('{} {} {}'.format('submit_voxelmatrix',param_dict['run_name'],' etude') +'\n')
    elif param_dict['inv_param'] == 'Qs':
-      f.write('{} {} {}'.format('#runvoxelmatrix',param_dict['run_name'],'Qs') +'\n')
+      f.write('{} {} {}'.format('submit_voxelmatrix ',param_dict['run_name'],'Qs') +'\n')
    if param_dict['inv_param'] == 'Vp':
-      f.write('{} {} {}'.format('#runassemblematrix','P','alldata') +'\n')
+      f.write('{} {} {}'.format('runassemblematrix','P','inversion') +'\n')
    elif param_dict['inv_param'] == 'Vs':
-      f.write('{} {} {}'.format('#runassemblematrix','S','alldata') +'\n')
+      f.write('{} {} {}'.format('runassemblematrix','S','alldata') +'\n')
    elif param_dict['inv_param'] == 'Qs':
-      f.write('{} {} {}'.format('#runassemblematrix','Qs','alldata') +'\n')
+      f.write('{} {} {}'.format('runassemblematrix','Qs','alldata') +'\n')
    if run_inversion:
       f.write('qsub submit_mpisolve.qsub \n')
 
@@ -1019,48 +1020,107 @@ def edit_delays_file(delays_file,phase,ep_dist,lat,lon,new_val,period='10.0'):
    f.close()
 
 
-def calculate_ray_coverage(earthquake_list,stations_list,phase='S'):
+def calculate_ray_coverage(earthquake_list,stations_list,depth_range,phase='S',**kwargs):
+   '''
+   args:
+      earthquake_list: earthquakes file (same format as used in synth tomo)
+      stations_list: stations file (same format as used in synth tomo)
+      depth_range: tuple (mindepth,maxdepth)
+
+   kwargs:
+      savefig: True or False
+      figname: str, name of figure (defaults to fig.pdf)
+      plot_title: str, title at the top of the plot (default no title)
+   '''
    #the earthquake list format is: eq num, eq lon, eq lat, eq dep
    #the stations list format is: st lon, st lat
-   prem = TauPyModel('prem_5km')
-   depths = np.arange(100,2100,100)
+   savefig = kwargs.get('savefig',True)
+   fig_name = kwargs.get('fig_name','fig.pdf')
+   plot_title = kwargs.get('plot_title','None')
+   prem = TauPyModel('prem_50km')
 
    stations_file = np.loadtxt(stations_list)
    quakes_file = np.loadtxt(earthquake_list)
    n_quakes = len(quakes_file)
    n_stats = len(stations_file)
-   st_lons = quakes_file[:,0]
-   st_lats = quakes_file[:,1]
-   eq_lons = stations_file[:,1]
-   eq_lats = stations_file[:,2]
-   eq_deps = stations_file[:,3]
+   st_lons = stations_file[:,0]
+   st_lats = stations_file[:,1]
+   eq_lons = quakes_file[:,1]
+   eq_lats = quakes_file[:,2]
+   eq_deps = quakes_file[:,3]
+
+   if phase=='S' or phase=='P':
+      delta_min = 30.0
+      delta_max = 100.0
+   elif phase == 'SKS':
+      delta_min = 70.0
+      delta_max = 140.0
+
+   m = Basemap(projection='ortho',lon_0=204,lat_0=20)
 
    for i in range(0,n_quakes):
+      #print 'working on earthquake', i
       for j in range(0,n_stats):
 
-          arrs = prem.get_pierce_points_geo(source_depth_in_km=eq_deps[i],
-                                            source_latitude_in_deg=eq_lats[i],
-                                            source_logitude_in_deg=eq_lons[i],
-                                            receiver_latitude_in_deg=st_lats[j],
-                                            receiver_longitude_in_deg=st_lons[j],
-                                            phase_list=[phase])
+          geodet = gps2dist_azimuth(eq_lats[i], eq_lons[i], st_lats[j], st_lons[j])
+          dist_m = geodet[0]
+          dist_deg = kilometer2degrees((dist_m/1000.))
+
+          if dist_deg < delta_min:
+             continue
+          elif dist_deg > delta_max:
+             continue
+
+          az = geodet[1]
+
+          #print 'eq_lat, eq_lon, st_lat, st_lon, dist_deg', eq_lats[i],eq_lons[i],st_lats[j],st_lons[j],dist_deg
+          arrs = prem.get_pierce_points(source_depth_in_km=eq_deps[i],
+                                        distance_in_degree=dist_deg,
+                                        phase_list=[phase])
+          #print arrs
           arr = arrs[0]
           pierce_dict = arr.pierce
           #items in pierce_dict: 'p' (slowness), 'time' (time in s), 'dist', (distance in rad), 'depth' (depth in km)
 
-          geodet = gps2dist_azimuth(eq_lats[i], eq_lons[i], st_lats[j], st_lons[j], a=6371000.0, f=0.0)
-          az = geodet[1]
 
           origin = geopy.Point(eq_lats[i],eq_lons[i])
           bearing = az
-
           geo_path = []
-
+          cross_pt1 = 0
+          cross_pt2 = 0
+          dist_max = pierce_dict['dist'][::-1][0]
           for ds in pierce_dict:
-             time = ds[1]
-             dist_deg = np.degrees(ds[2])
-             dist_km = dist_deg * ((2*np.pi*6371.0/360.0))
-             geo_pt = VincentyDistance(kilometers=dist_km).destination(origin,bearing)
-             lat_pt = geo_pt[0]
-             lon_pt = geo_pt[1]
-             geo_path.append((lon_pt,lat_pt))
+             #only add points that are past turning depth
+             dist_here = ds[2]
+             if dist_here >= dist_max / 2:
+                time_here = ds[1]
+                depth_here = ds[3]
+                if depth_here == depth_range[1]:
+                   dist_deg = np.degrees(ds[2])
+                   dist_km = dist_deg * ((2*np.pi*6371.0/360.0))
+                   geo_pt = VincentyDistance(kilometers=dist_km).destination(origin,bearing)
+                   lat_pt = geo_pt[0]
+                   lon_pt = geo_pt[1]
+                   cross_pt1 = (lon_pt,lat_pt)
+                if depth_here == depth_range[0]:
+                   dist_deg = np.degrees(ds[2])
+                   dist_km = dist_deg * ((2*np.pi*6371.0/360.0))
+                   geo_pt = VincentyDistance(kilometers=dist_km).destination(origin,bearing)
+                   lat_pt = geo_pt[0]
+                   lon_pt = geo_pt[1]
+                   cross_pt2 = (lon_pt,lat_pt)
+          if cross_pt1 != 0 and cross_pt2 != 0:
+             m.drawgreatcircle(cross_pt1[0],cross_pt1[1],cross_pt2[0],cross_pt2[1],linewidth=1,alpha=0.15,color='k')
+
+   m.drawcoastlines()
+   m.fillcontinents(color='grey')
+   m.drawparallels(np.arange(-90.,120.,30.))
+   m.drawmeridians(np.arange(0.,360.,60.))
+   if plot_title != 'None':
+      plt.title(plot_title)
+
+   if savefig:
+      plt.savefig(fig_name)
+      plt.clf()
+   else:
+      plt.show()
