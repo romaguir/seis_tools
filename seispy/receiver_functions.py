@@ -1069,3 +1069,6 @@ def delay_and_sum_rfs(rfs,conversion_depth,**kwargs):
       #print n_in_stack, ' stacked'
    stack /= n_in_stack
    return stack
+
+#TODO write functions get_P_raypath_geo(P_slowness,stlo,stla,baz):
+#                     get_Pds_raypath_geo(P_slowness,stlo,stla,baz,conversion_depth):
