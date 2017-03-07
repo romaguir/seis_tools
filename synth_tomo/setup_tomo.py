@@ -1,3 +1,7 @@
+#The following two lines are for making plots on etude compute nodes
+import matplotlib as mpl
+mpl.use('Agg')
+
 import os
 import subprocess
 import numpy as np
@@ -26,6 +30,7 @@ elif param_dict['event_geometry'] == 'read':
 os.mkdir(param_dict['run_name'])
 os.chdir(param_dict['run_name'])
 subprocess.call("cp ../inparam_tomo .",shell=True)
+subprocess.call("cp ../setup_tomo.py .",shell=True)
 subprocess.call("cp ../earthquake_list .",shell=True)
 subprocess.call("cp ../station_list .",shell=True)
 
@@ -63,6 +68,13 @@ for event in events:
          else:
             nS += 1
             filename = '{}_{}'.format(param_dict['run_name']+'.S',nS)
+      elif phase == 'P': 
+         if event_dist_deg < 30.0 or event_dist_deg > 90.0:
+             print 'skipping event for phase ',phase,'at distance',event_dist_deg
+             continue
+         else:
+            nS += 1
+            filename = '{}_{}'.format(param_dict['run_name']+'.P',nS)
 
       print 'eq lon,lat,depth :', eq_lon, eq_lat, eq_dep
       ff_tomo.write_input(eq_lat=eq_lat,
@@ -78,7 +90,8 @@ for event in events:
                           raytheory=param_dict['ray_theory'],
                           plot_figure=False,
                           t_sig=param_dict['t_sig'],
-                          add_noise=param_dict['add_noise']) 
+                          add_noise=param_dict['add_noise'],
+			  filter_type='gaussian') 
       ievt += 1
 
 #write scripts to run ff software------------------------------------------------
