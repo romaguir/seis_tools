@@ -392,7 +392,7 @@ def get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate,**kwargs):
    amp: frequency response of filter
    '''
    plot = kwargs.get('plot',False)
-   corners = kwargs.get('corners',2)
+   corners = kwargs.get('corners',4)
    std_dev = kwargs.get('std_dev',0.1)
    mid_freq = kwargs.get('mid_freq',1/10.0)
    
@@ -412,10 +412,10 @@ def get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate,**kwargs):
       fmax=freqmax
       omega_hz = np.linspace(0,0.5,200)
       omega = omega_hz*(2*np.pi)
-      #f_middle_hz = (fmin+fmax)/2.0
-      #f_middle = f_middle_hz*(2*np.pi)
-      f_middle_hz = mid_freq
+      f_middle_hz = (fmin+fmax)/2.0
       f_middle = f_middle_hz*(2*np.pi)
+      #f_middle_hz = mid_freq  #f_middle_hz = 10.0 was used in JGR manuscript
+      #f_middle = f_middle_hz*(2*np.pi)
       print f_middle_hz,f_middle
       amp = np.exp(-1.0*((omega-f_middle)**2)/(2*(std_dev**2)))
       amp = amp/np.max(amp)
@@ -600,7 +600,13 @@ def get_station_delays(event_map,stations,lats_i,lons_i,**kwargs):
       lons = stations[0,:]
       lats = stations[1,:]
 
-   delay_interpolator = interpolate.RegularGridInterpolator((lons_i,lats_i),event_map)
+   #delay_interpolator = interpolate.RegularGridInterpolator((lons_i,lats_i),event_map)
+
+   #RM 3/31/17: I changed removed the bounds error on the interpolator...
+   #            This is dangerous and I'm not sure how things will be effected.
+   #            This is for preliminary testing of the Pacific array geometry
+   delay_interpolator = interpolate.RegularGridInterpolator((lons_i,lats_i),event_map,
+                                                            bounds_error=False,fill_value=0.0)
    station_delays = delay_interpolator((lats,lons))
 
    if pass_figure_axis:
@@ -644,7 +650,7 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
    nobst = kwargs.get('nobst','1') #number of travel time measurements
    nobsa = kwargs.get('nobsa','0') #number of amplitude measurements
    kpole = kwargs.get('kpole','0') #number of polar crossings (0 for P and S)
-   sampling_rate = kwargs.get('sampling_rate',20.0)
+   sampling_rate = kwargs.get('sampling_rate',10.0)
    n_bands = kwargs.get('n_bands',1) # spectral bands used (TODO setup more than one)
    kunit = kwargs.get('kunit',1) #unit of noise (1 = nm)
    rms0 = kwargs.get('rms0',0) #don't know what this is
@@ -1037,6 +1043,7 @@ def calculate_ray_coverage(earthquake_list,stations_list,depth_range,phase='S',*
    savefig = kwargs.get('savefig',True)
    fig_name = kwargs.get('fig_name','fig.pdf')
    plot_title = kwargs.get('plot_title','None')
+   fout_name = kwargs.get('fout_name','None')
    prem = TauPyModel('prem_50km')
 
    stations_file = np.loadtxt(stations_list)
@@ -1056,7 +1063,8 @@ def calculate_ray_coverage(earthquake_list,stations_list,depth_range,phase='S',*
       delta_min = 70.0
       delta_max = 140.0
 
-   m = Basemap(projection='ortho',lon_0=204,lat_0=20)
+   m = Basemap(projection='hammer',lon_0=204)
+   fout = open(fout_name,'w')
 
    for i in range(0,n_quakes):
       #print 'working on earthquake', i
@@ -1111,11 +1119,12 @@ def calculate_ray_coverage(earthquake_list,stations_list,depth_range,phase='S',*
                    cross_pt2 = (lon_pt,lat_pt)
           if cross_pt1 != 0 and cross_pt2 != 0:
              m.drawgreatcircle(cross_pt1[0],cross_pt1[1],cross_pt2[0],cross_pt2[1],linewidth=1,alpha=0.15,color='k')
+             fout.write('{} {} {} {}'.format(cross_pt1[0],cross_pt1[1],cross_pt2[0],cross_pt2[1])+'\n')
 
    m.drawcoastlines()
-   m.fillcontinents(color='grey')
-   m.drawparallels(np.arange(-90.,120.,30.))
-   m.drawmeridians(np.arange(0.,360.,60.))
+   m.fillcontinents(color='lightgrey')
+   #m.drawparallels(np.arange(-90.,120.,30.))
+   #m.drawmeridians(np.arange(0.,360.,60.))
    if plot_title != 'None':
       plt.title(plot_title)
 

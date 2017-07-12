@@ -3,4 +3,3 @@ import filter
 import plot
 import misc
 from receiver_functions import receiver_function
-import os

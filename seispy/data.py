@@ -268,3 +268,65 @@ def bootstrap_signals(signal_list,M,confidence_level=0.9):
    conf_int = stats.norm.interval(0.90,loc=mean,scale=std)
    
    return mean,std,conf_int
+
+#################################################################################
+def first_arrival(trace,phase,taup_model=model,threshold=0.05,return_delay=True,window=[-20,20]):
+#################################################################################
+   '''
+   This is a quick and dirty way of estimating the first arrival
+   on a trace.  The trace is first be windowed around the theoretical
+   arrival, and normalized on the maximum of the
+   phase of interest to make the threshold value meaningful
+
+   trace: obspy trace object with event characteristics in sac dictionary
+   phase: the phase of interest (should only use P or S)
+   taup_model: an instance of the TauPyModel class
+   threshold: value that is considered the onset of the arrival 
+   return_delay: If True, returns the travel time delay.  If False, returns
+                  the absolute travel time.
+   window: time around to window phase (default 20 seconds before to 20 seconds
+                                        after the theoretical arrival)
+   '''
+   from seis_tools.seispy.data import phase_window
+
+   #avoid null arrivals
+   if phase == 'P':
+      phase_list = ['P','p','Pdiff']
+   elif phase == 'S':
+      phase_list = ['S','s','Sdiff']
+
+   #get theoretical arrival
+   arrs = taup_model.get_travel_times(source_depth_in_km=trace.stats.sac['evdp'],
+                                      distance_in_degree=trace.stats.sac['gcarc'],
+                                      phase_list = phase_list)
+   predicted_time = arrs[0].time
+
+   #window the trace
+   trace = phase_window(trace,phases=phase_list,window_tuple=window)
+
+   max_val = np.max(trace.data)
+   min_val = np.min(trace.data)
+
+   #normalize trace
+   if np.abs(min_val) > max_val:
+      trace.data /= min_val
+   else:
+      trace.data /= max_va
+
+   arr_index = 0
+   #get actual travel time
+   for i in range(0,len(trace.data)):
+      if np.abs(trace.data[i]) >= threshold:
+         arr_index = i
+         print "Found the value ", threshold, "at index", i
+         break
+   
+   observed_time = predicted_time + trace.stats.delta*arr_index + window[0]
+   print "predicted time", predicted_time
+   print "observed time", observed_time
+
+   if return_delay:
+      return predicted_time - observed_time
+   else:
+      return observed_time
+

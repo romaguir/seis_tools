@@ -252,8 +252,9 @@ class receiver_function(object):
        #   self.rf_st[1].data = rf_time_decon(self.rf_st[1].data,div)
        #elif decon_type == 'solve_toeplitz':
        #   self.rf_st[1].data = solve_toeplitz(div,self.rf_st[1].data)
-       elif decon_type == 'use_lsrn':
-          self.rf_st[1].data = use_lsrn(self.rf_st[1].data,div)
+
+       #elif decon_type == 'use_lsrn':
+          #self.rf_st[1].data = use_lsrn(self.rf_st[1].data,div)
           
 
        #center on P--------------------------------------------------------------------
@@ -770,11 +771,11 @@ def migrate_1d(rf_trace,**kwargs):
    #get kwargs
    depth      = kwargs.get('depth_range',np.arange(50,805,5))
    taup_model = kwargs.get('taup_model','None')
-   format     = kwargs.get('format','rfh5')
-   window     = kwargs.get('window',[-10,100])
+   form       = kwargs.get('format','rfh5')
+   window     = kwargs.get('window',[-10,120])
 
    #geographical information
-   if format == 'rfh5':
+   if form == 'rfh5':
       gcarc = rf_trace.stats.gcarc
       dt    = rf_trace.stats.delta
       evla  = rf_trace.stats.evla
@@ -1005,10 +1006,19 @@ def delay_and_sum_rfs(rfs,conversion_depth,**kwargs):
    ref_deg: reference degree for the moveout correction
    taup_model_name: name of taup model
    table:   location of pds moveout correction lookup table
+   migrate: whether or not to migrate the stack to depth (True or False)
+            if True, this function returns a list of arrays of the form
+            [depths, amplitudes].  If False, just the stacked amplitudes
+            are returned (which correspond to the time axis of the 
+            receiver functions)
+   rel_start: start time of receiver functions relative to P. default = -10.0
    '''
    ref_deg = kwargs.get('ref_deg',64.0)
    taup_model_name = kwargs.get('taup_model_name','prem')
    table = kwargs.get('table','/geo/work10/romaguir/projects/usarray_rfs/data/moveout_lookup_tables/pds_moveout_slowness_vs_depth.dat')
+   migrate = kwargs.get('migrate',False)
+   rel_start = kwargs.get('rel_start',-10.0)
+
    taup_model = TauPyModel(taup_model_name)
    n_in_stack = 0
    stack = 0
@@ -1036,28 +1046,14 @@ def delay_and_sum_rfs(rfs,conversion_depth,**kwargs):
    t_array = np.reshape(t_pts,(len(d_axis),len(p_axis)))
 
    find_tshift = interp2d(p_axis,d_axis,t_array)
-   for rf in rfs:
-      #rf.shift(phase=Phase)
-      '''
-      t_ref = taup_model.get_travel_times(source_depth_in_km=rf.stats.evdp,
-			                  distance_in_degree=ref_deg,
-			                  phase_list=["P",phase])
-      t_arr = taup_model.get_travel_times(source_depth_in_km=rf.stats.evdp,
-				          distance_in_degree=rf.stats.gcarc,
-			                  phase_list=["P",phase])
-      for arr in t_ref:
-         if arr.name=='P':
-            p_arrival_ref = arr.time
-         elif arr.name==phase:
-            pds_arrival_ref = arr.time
 
-      for arr in t_arr:
-         if arr.name=='P':
-            p_arrival = arr.time
-         elif arr.name==phase:
-            pds_arrival = arr.time
-      '''
-      time_shift = find_tshift(rf.stats.ray_param,conversion_depth)
+   for rf in rfs:
+      try:
+         ray_param = rf.stats.ray_param
+      except AttributeError:
+         ray_param = rf.stats.ray_param_sec_degree
+
+      time_shift = find_tshift(ray_param,conversion_depth)
       time_shift *= -1.0
 
       dt = 1.0/rf.stats.sampling_rate
@@ -1067,8 +1063,23 @@ def delay_and_sum_rfs(rfs,conversion_depth,**kwargs):
       stack += rf_data #don't actually roll the data of the trace
       n_in_stack +=1
       #print n_in_stack, ' stacked'
-   stack /= n_in_stack
-   return stack
+
+   if migrate == False:
+      stack /= n_in_stack
+      return stack
+   else:
+      stack /= n_in_stack
+      f = np.loadtxt('/geo/work10/romaguir/projects/usarray_rfs/data/pds_arrival_times.dat')
+      depths = f[:,0] #depths in file
+      times = f[:,1] #Pds - P times in file
+      amps = np.zeros(len(depths))
+
+      for i in range(0,len(depths)): 
+         pds_minus_p = times[i]
+         rf_index = int((pds_minus_p - rel_start)/dt)
+         amps[i] = stack[rf_index]
+
+   return depths,amps/np.max(stack)
 
 #TODO write functions get_P_raypath_geo(P_slowness,stlo,stla,baz):
 #                     get_Pds_raypath_geo(P_slowness,stlo,stla,baz,conversion_depth):

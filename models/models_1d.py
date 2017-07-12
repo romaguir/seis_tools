@@ -302,3 +302,42 @@ def plot(model_name,var):
 
    plt.show()
 
+def write_prem_tvel(prem_file_in,prem_file_out,discon):
+   '''
+   prem_file_in: path to standard prem file with no additional discontinuities
+   prem_file_out: name of newly created prem tvel file
+   discon: depth of discontinuity you wish to add
+   '''
+   prem1d = prem()
+   f_in = np.loadtxt(prem_file_in)
+   depth = f_in[:,0]
+   vp = f_in[:,1]
+   vs = f_in[:,2]
+   rho = f_in[:,3]
+   vp_disc = prem1d.get_vp(discon)
+   vs_disc = prem1d.get_vs(discon)
+   rho_disc = prem1d.get_rho(discon)/1000.0
+   f_out = open(prem_file_out,'w')
+   i = 0
+   step = 0.0001
+
+   #write header
+   f_out.write('prem{}.tvel -P'.format(discon)+'\n')
+   f_out.write('prem{}.tvel -S'.format(discon)+'\n')
+
+   for i in range(0,len(depth)-1):
+      #add the disconitnuity 
+      if depth[i] < discon and depth[i+1] >= discon and discon != 220 and discon != 400 and discon != 670:
+	 if depth[i] != discon:
+            f_out.write('{} {} {} {}'.format(depth[i],vp[i],vs[i],rho[i])+'\n')
+         f_out.write('{} {} {} {}'.format(discon,vp_disc,vs_disc,rho_disc)+'\n')
+         f_out.write('{} {} {} {}'.format(discon,vp_disc+step,vs_disc+step,rho_disc+step)+'\n')
+      elif depth[i] != discon and depth[i] != 220 and depth[i] != 400 and depth[i] != 670:
+         f_out.write('{} {} {} {}'.format(depth[i],vp[i],vs[i],rho[i])+'\n')
+      else:
+         f_out.write('{} {} {} {}'.format(depth[i],vp[i],vs[i],rho[i])+'\n')
+      #f_out.write('{} {} {} {}'.format(depth[i],vp[i],vs[i],rho[i])+'\n')
+
+   f_out.write('{} {} {} {}'.format(depth[-1],vp[-1],vs[-1],rho[-1])+'\n')
+
+   f_out.close()

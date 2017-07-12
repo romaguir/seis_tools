@@ -35,3 +35,14 @@ def write_s40_layer(depth_range,file_name,percent_dv,lat_range=(-20,20),lon_rang
          else:
             line = '{} {} {}'.format(lat,lon,0.0)
             output.write(line+'\n')
+
+def get_rspl_coeff():
+
+    #The following are the 21 vertical spline coefficients used in S40RTS
+
+    coeffs = [-1.00000,-0.78631,-0.59207,-0.41550,-0.25499,
+              -0.10909, 0.02353, 0.14409, 0.25367, 0.35329,
+               0.44384, 0.52615, 0.60097, 0.66899, 0.73081,
+               0.78701, 0.83810, 0.88454, 0.92675, 0.96512,
+               1.00000]
+

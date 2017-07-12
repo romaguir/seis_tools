@@ -91,8 +91,10 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
       print 'streams after range filter ',st1,st2
    
    sampling_rate = st1[0].stats.sampling_rate
-   st1.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=2)
-   st2.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=2)
+   #st1.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=2)
+   #st2.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=2)
+   st1.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=4,zerophase=True)
+   st2.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=4,zerophase=True)
    #frequencies = filter_freqs(freqmin,freqmax,sampling_rate,plot=True,corners=2)
    
    #create lists for scattered data----------------------------------------------
