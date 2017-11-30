@@ -12,6 +12,17 @@ def cart2polar(x,y):
 
    return r,theta
 
+def polar2cart(radius,theta,theta_deg=True):
+   '''
+   takes polar coordinates and returns cartesian.theta should be in degree
+   '''
+   if theta_deg == True:
+       theta = np.radians(theta)
+
+   x = radius*np.cos(theta)
+   y = radius*np.sin(theta)
+   return(x,y)
+
 def interp_plume_dv(plume_model,pts_file,fname_out='plume.xy',zero_center=True):
    '''
    Takes a plume model file, interpolates it to a new grid, and writes a new file

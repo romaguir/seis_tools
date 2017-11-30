@@ -559,18 +559,24 @@ class velocity_model(object):
 
       if one_file:
          f = open(output_name,'w')
+         f.write('theta (deg), rad (km), T(K), dvp (%), dvs(%), drho(%)'+'\n')
          for i in range(0,len(self.rad_km)):
             for j in range(0,len(self.theta)):
                x, y = polar_2_cart(self.rad_km[i],self.theta[j])
-               o1   = x
-               o2   = y
-               o3   = self.vp_array[(self.npts_rad-1)-i,j]
-               o4   = self.vs_array[(self.npts_rad-1)-i,j]
-               o5   = self.rho_array[(self.npts_rad-1)-i,j]/1000.0
-               o6   = self.dvp_abs[(self.npts_rad-1)-i,j]
-               o7   = self.dvs_abs[(self.npts_rad-1)-i,j]
-               o8   = self.drho_abs[(self.npts_rad-1)-i,j]/1000.0
-               line = '{} {} {} {} {} {} {} {}'.format(o1,o2,o3,o4,o5,o6,o7,o8)
+               o1   = self.theta[j]
+               o2   = self.rad_km[i]
+               o3   = self.T[(self.npts_rad-1)-i,j]
+               o4   = self.dvp_rel[(self.npts_rad-1)-i,j]
+               o5   = self.dvs_rel[(self.npts_rad-1)-i,j]
+               o6   = self.drho_rel[(self.npts_rad-1)-i,j]
+               #o3   = self.vp_array[(self.npts_rad-1)-i,j]
+               #o4   = self.vs_array[(self.npts_rad-1)-i,j]
+               #o5   = self.rho_array[(self.npts_rad-1)-i,j]/1000.0
+               #o6   = self.dvp_abs[(self.npts_rad-1)-i,j]
+               #o7   = self.dvs_abs[(self.npts_rad-1)-i,j]
+               #o8   = self.drho_abs[(self.npts_rad-1)-i,j]/1000.0
+               #line = '{} {} {} {} {} {} {} {}'.format(o1,o2,o3,o4,o5,o6,o7,o8)
+               line = '{} {} {} {} {} {}'.format(o1,o2,o3,o4,o5,o6)
                f.write(line+'\n')
       else:
          f_dvp = open(output_name+'_dvp','w')

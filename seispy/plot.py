@@ -1,3 +1,4 @@
+
 '''
 seis_plot.py includes all functions for plotting seismic data
 '''
@@ -34,14 +35,10 @@ def precursor_PKIKP(seis_stream_in,precursor_onset,time_offset,name=False):
     Produce colorbar of PKPdf scatterers from Mancinelli & Shearer 2011
     PARAMETERS
     __________
-
     seis_stream_in: obspy.core.stream.Stream object.
-
     precursor_onset = h5py file
-
     time_offset = integer/float amount of seconds to shift the arrival
                  to match PKPdf on zero
-
     name = default = False. If a string is passed, it will save the
                  image to pdf in the
            directory work4/IMAGES
@@ -364,7 +361,6 @@ def parallel_add_to_axes(trace_tuple):
 def section(st,**kwargs):
     '''
     Plot record section of obspy stream object
-
     kwargs:
     shift: True or False. set start of every trace to be t=0
     flip_axes: True or False. if True, plots distance on x axis and time on y
@@ -385,6 +381,9 @@ def section(st,**kwargs):
     showplot = kwargs.get('showplot',True)
     axis = kwargs.get('axis','none')
     flip_axes = kwargs.get('flip_axes',False)
+    return_axis = kwargs.get('return_axis',False)
+    plot_title = kwargs.get('plot_title','section.pdf')
+    save_name = kwargs.get('save_name','record section')
 
     def main(st):
         p_list,name_list,dist_list = p_list_maker(st)
@@ -423,14 +422,15 @@ def section(st,**kwargs):
             ax_n.set_ylim(y1,y2)
 
         if save != False:
-            plt.savefig(save+'/section.pdf',format='pdf')
+	    plt.title(plot_title)
+            plt.savefig(save_name,format='pdf')
 
         if showplot == True:
            plt.show()
-        else:
-           print "this should return an axis object"
 
-        return ax
+	if return_axis:
+           print "this should return an axis object"
+           return ax
 
     def phase_plot(lim_tuple,ref_degree,evdp,phases,ax):
         arrivals = model.get_travel_times(distance_in_degree=ref_degree,
@@ -832,7 +832,6 @@ def gmt_north_america(**kwargs):
          val_here = min(0,np.float(vals[i]))
          poly_time_neg.append(time[i])
          poly_vals_neg.append(val_here)
-
       poly_vals_neg.append(0.0)
       poly_time_neg.append(time[::-1][0])
       poly_vals_neg.append(0.0)

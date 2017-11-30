@@ -366,8 +366,15 @@ def get_filter_params(delays_file,phase,Tmin,**kwargs):
       freqmax = data.attrs['freqmax']
       window = data.attrs['window']
    except KeyError:
-      freqmin = 1/10.0
-      freqmax = 1/25.0
+      #freqmin = 1/10.0
+      #freqmax = 1/25.0
+      if Tmin == '10.0':
+          freqmin = 1/10.0
+          freqmax = 1/25.0
+      elif Tmin == '20.0':
+          freqmin = 1/20.0
+          freqmax = 1/50.0
+
       window = np.array([-20.0,20.0])
 
    return filter,freqmin,freqmax,window
@@ -671,8 +678,14 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
 
    #get filter parameters--------------------------------------------------------
    print 'Tmin = ', Tmin
-   filter_type, freqmin,freqmax, window = get_filter_params(delays_file,phase,Tmin,filter_type=filter_type)
-   omega,amp =  get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate)
+   omega_list = []
+   amp_list = []
+   for T0 in Tmin:
+      filter_type, freqmin,freqmax, window = get_filter_params(delays_file,phase,T0,filter_type=filter_type)
+      omega,amp =  get_filter_freqs(filter_type,freqmin,freqmax,sampling_rate)
+      omega_list.append(omega)
+      amp_list.append(amp)
+
    window_len = window[1] - window[0]
 
    #write header-----------------------------------------------------------------
@@ -707,7 +720,6 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       f.write('6371 5 0'+'\n')
 
    #this is hardwired for now (based on range of rays found with ray tracing software)
-   #TODO make distance range more adaptable
    if phase == 'P':
       dist_min = 30.0
       #dist_max = 98.3859100
@@ -728,9 +740,11 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
       f.write('{}'.format(n_bands)+'\n')
    else:
       f.write('{}'.format(n_bands)+'\n')
-      f.write('{}'.format(len(omega))+'\n')
-      for i in range(0,len(omega)): 
-         f.write('{} {}'.format(omega[i],amp[i])+'\n')
+
+      for i in range(0,n_bands):
+         f.write('{}'.format(len(omega_list[i]))+'\n')
+         for j in range(0,len(omega)): 
+            f.write('{} {}'.format(omega_list[i][j],amp_list[i][j])+'\n')
 
    #event delay map--------------------------------------------------------------
    #lats_i = np.arange(-30.0,30.0,0.1)
@@ -738,25 +752,33 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
    lats_i = np.arange(-45.0,45.0,0.1)
    lons_i = np.arange(-45.0,45.0,0.1)
 
+   event_maps = []
+   station_delays_list = []
+
    if plot_figure:
       event_map,figure_axis = make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,lats_i=lats_i,lons_i=lons_i,plot=True,return_axis=False,nevent=ievt)
    else:
       if debug:
          print 'func:write_input- making event delay map for', phase
          #print 'eq_lat,eq_lon,phase,Tmin lats_i,lons_i',eq_lat,eq_lon,phase,Tmin,lats_i,lons_i
-      event_map = make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin,lats_i=lats_i,                                          lons_i=lons_i,return_axis=False,plot=True,nevent=ievt)
+      for i in range(0,n_bands):
+         event_map = make_event_delay_map(eq_lat,eq_lon,phase,delays_file,Tmin[i],lats_i=lats_i,                                          lons_i=lons_i,return_axis=False,plot=True,nevent=ievt)
+         event_maps.append(event_map)
 
    #find delays at stations------------------------------------------------------
    if plot_figure:
       station_delays = get_station_delays(event_map,stations,lats_i,lons_i,pass_figure_axis=True,figure_axis=figure_axis)
    else: 
-      station_delays = get_station_delays(event_map,stations,lats_i,lons_i)
+      for i in range(0,n_bands):
+         station_delays = get_station_delays(event_maps[i],stations,lats_i,lons_i)
+         station_delays_list.append(station_delays)
 
    #add noise (optional)---------------------------------------------------------
    if t_sig != 0:
       noise = np.random.normal(0,t_sig,len(station_delays))
       if add_noise:
-         station_delays += noise
+         for i in range(0,len(station_delays_list)):
+            station_delays_list[i] += noise
 
    station_lons = stations[0,:]
    station_lats = stations[1,:]
@@ -799,15 +821,11 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
 	 print 'time in core: ', time_in_core
 	 print '_________________________________________________________________________________'
 
-      ray_theory_travel_time = ray_theory_arr[0].time
-      delay_time = station_delays[i] 
-      tobs = ray_theory_travel_time - delay_time
-
       if debug:
           print 'distance, phase, raytheory travel time, observed delay:', event_dist_deg,phase,ray_theory_travel_time,delay_time
           print 'the travel time observation is ', tobs
 
-      fdelays.write('{}'.format(delay_time)+'\n')
+         #fdelays.write('{}'.format(delay_time)+'\n')
 
       if raytheory:
          n_bands = 0
@@ -816,18 +834,20 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
          kunit = 0
          corcoeft=0
       else:
-         nbt = 1 #spectral band number
+            nbt = 1 #spectral band number
 
-      #write line 1--------------------------------------------------------------
+      #write line 1 (header - doesn't repeat for each spectral band)----------------
       f.write('{} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}'.format(idate,
               iotime,ievt,kluster,stationcode,netw,gm_component,eq_lat,eq_lon,eq_dep,
               station_lats[i],station_lons[i],station_elevation,nobst,nobsa,kpole)+'\n')
 
+
+
       #write line 2--------------------------------------------------------------
       f.write('{} {} '.format(kunit,rms0))
-      for j in range(0,n_bands+1):
-         f.write('0')   #used to be 0.0 
-      f.write('\n')
+      for j in range(0,n_bands):
+         f.write('0 ')   #used to be 0.0 
+         f.write('\n')
 
       #write line 3---------------------------------------------------------------
       if raytheory:
@@ -836,11 +856,18 @@ def write_input(eq_lat,eq_lon,eq_dep,ievt,stations,phase,delays_file,Tmin,taup_m
          f.write('{}'.format(n_bands)+'\n')
       
       #write line 4---------------------------------------------------------------
-      corcoeft = 1.0 # cross correlation coefficient 
-      f.write('{} {} {} {} {} {} {}'.format(tobs,t_sig,corcoeft,nbt,window_len,time_in_core,'#tobs,tsig,corcoeft,nbt,window,tincore')+'\n') 
+
+      #find delays for each band
+      for j in range(0,n_bands):
+         ray_theory_travel_time = ray_theory_arr[0].time
+         delay_time = station_delays_list[j][i] 
+         tobs = ray_theory_travel_time - delay_time
+         corcoeft = 1.0 # cross correlation coefficient 
+         nbt = j+1
+         f.write('{} {} {} {} {} {} {}'.format(tobs,t_sig,corcoeft,nbt,window_len,time_in_core,'#tobs,tsig,corcoeft,nbt,window,tincore')+'\n') 
 
       #write line 5--------------------------------------------------------------
-      f.write('{}'.format(0)+'\n')
+      f.write('{}'.format(0)+'\n') # no amplitude info?
 
 def write_inmpisolve(run_name='inversion',**kwargs):
    chi2 = kwargs.get('chi2',1.0)
@@ -979,7 +1006,7 @@ def plot_delays_file(delays_file,phase='S',period='10.0',ep_d='all',**kwargs):
          l = np.sqrt(len(x))
          dT = dT.reshape(l,l)
          if plot_type == 'scatter':
-            plt.scatter(points[:,0],points[:,1],c=points[:,2],edgecolor='none',s=50)
+            plt.scatter(points[:,0],points[:,1],c=points[:,2])
          elif plot_type == 'imshow':
             plt.imshow(dT,extent=(x.min(),x.max(),y.min(),y.max()))
          plt.colorbar()
@@ -996,7 +1023,7 @@ def plot_delays_file(delays_file,phase='S',period='10.0',ep_d='all',**kwargs):
       l = np.sqrt(len(x))
       dT = dT.reshape(l,l)
       if plot_type == 'scatter':
-         plt.scatter(points[:,0],points[:,1],c=points[:,2],edgecolor='none',s=50)
+         plt.scatter(points[:,0],points[:,1],c=points[:,2])
       elif plot_type == 'imshow':
          plt.imshow(dT,extent=(x.min(),x.max(),y.min(),y.max()))
       plt.colorbar()

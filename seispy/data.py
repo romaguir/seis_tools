@@ -168,7 +168,7 @@ def waterlevel_deconvolve(tr):
 
     return [stats_dict,out]
 
-def cross_cor(tr1,tr2,**kwargs):
+def cross_cor(tr1,tr2,mode='cross_cor',**kwargs):
    '''
    Cross correlation between two traces windowed around an expected arrival for a given
    phase.  The default reference model used to predict phase arrivals is ak135, but a 
@@ -177,6 +177,7 @@ def cross_cor(tr1,tr2,**kwargs):
    arguments:---------------------------------------------------------------------------
    tr1:         Trace 1 (obspy trace object)
    tr2:         Trace 2 (obspy trace object)
+   mode:        cross correlation delay times: 'cross_cor' (default) or onset delay times: 'onset'
 
    **kwargs:----------------------------------------------------------------------------
    taup_model:  The velocity model used to predict arrivals. If 'default', ak135 if used.
@@ -186,6 +187,10 @@ def cross_cor(tr1,tr2,**kwargs):
    fmax:        Maximum frequency used in bandpass, in Hz (if filter=True)
    window:      Time window around specified phase, in s.
    plot:        Whether or not to plot the traces in the cross correlation window. 
+   onset_threshold: for use with 'onset' mode.  value onsidered to be the 'onset'
+                    of the seismic phase, as a fraction of the maximum value of the
+                    phase (i.e., 0.05 means we consider the onset to be where
+                    the wave reaches 5% of the maximum amplitude of the arrival)
 
    Returns:-----------------------------------------------------------------------------
    delay:       Delay time, in s.
@@ -201,6 +206,7 @@ def cross_cor(tr1,tr2,**kwargs):
    window = kwargs.get('window',(-20,20))
    phase  = kwargs.get('phase','P')
    taup_model = kwargs.get('taup_model','default')
+   onset_threshold = kwargs.get('onset_threshold',0.05)
 
    #copy traces so you don't destroy them
    tr_1 = tr1.copy()
@@ -220,8 +226,27 @@ def cross_cor(tr1,tr2,**kwargs):
    tr_2 = phase_window(tr_2,phases=phase,window_tuple=window,taup_model=taup_model)
 
    #calculate delay time
-   correlogram = correlate(tr_1.data,tr_2.data)
-   delay = (np.argmax(correlogram)-len(correlogram)/2)*(1.0/tr_1.stats.sampling_rate)
+   if mode=='cross_cor':
+      correlogram = correlate(tr_1.data,tr_2.data)
+      delay = (np.argmax(correlogram)-len(correlogram)/2)*(1.0/tr_1.stats.sampling_rate)
+
+   elif mode=='onset':
+      tr_1.normalize()
+      tr_2.normalize()
+      arr1_i = 'nan'
+      arr2_i = 'nan'
+
+      for i in range(0,len(tr_1.data)):
+          if np.abs(tr_1.data[i]) >= onset_threshold:
+              arr1_i = i
+              break
+      for i in range(0,len(tr_2.data)):
+          if np.abs(tr_2.data[i]) >= onset_threshold:
+              arr2_i = i
+              break
+
+      shift_i = arr1_i - arr2_i
+      delay = shift_i * (1.0/tr_1.stats.sampling_rate)
 
    #plot
    if plot == True:
@@ -231,12 +256,10 @@ def cross_cor(tr1,tr2,**kwargs):
       axes[0].plot(time,tr_2.data)
       axes[0].set_xlabel('time (s)')
       axes[0].set_title('delay = '+str(delay)+' s')
-      axes[1].plot(correlogram)
-      axes[1].set_xlabel('sample number') 
-      axes[1].set_title('correlelogram')
+      #axes[1].plot(correlogram)
+      #axes[1].set_xlabel('sample number') 
+      #axes[1].set_title('correlelogram')
       plt.show()
-
-   #TODO implement a measurement of peak offset
 
    return delay
 
@@ -330,3 +353,7 @@ def first_arrival(trace,phase,taup_model=model,threshold=0.05,return_delay=True,
    else:
       return observed_time
 
+def get_gcarc(tr):
+    '''
+    takes a trace which has a sac dictionary and adds gcarc
+    '''

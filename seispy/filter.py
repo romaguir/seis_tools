@@ -137,7 +137,7 @@ def range_filter(st, range_tuple):
 
 def az_filter(st, az_tuple):
     '''
-    Removes seismograms from trace if they fall outside the azimuth limits
+    Removes seismograms from stream if they fall outside the azimuth limits
     of az_tuple
     '''
 

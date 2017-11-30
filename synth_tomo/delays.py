@@ -34,6 +34,11 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
    plot: show scatter plot of delay times. default=False
    taup_model: an instance of the obspy TauPyModel class, used to estimate phase
                arrivals.
+   mode: whether to use cross correlation ('cross_cor') or onset times ('onset')
+         to calculate delays
+   onset_threshold: threshold considered to be an 'onset' of a seismic phase,
+                    as a fraction of the maximum amplitude of the phase.
+                    deafault = 0.05 (i.e., 5%)
    '''
    #get kwargs-------------------------------------------------------------------
    T_min = 1.0/freqmax
@@ -43,6 +48,8 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
    filter_type = kwargs.get('filter_type','bandpass')
    plot = kwargs.get('plot',False)
    taup_model = kwargs.get('taup_model','default')
+   mode = kwargs.get('mode','cross_cor')
+   onset_threshold = kwargs.get('onset_threshold',0.05)
 
    debug = False
 
@@ -81,6 +88,7 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
 
    if debug:
       print st1,st2
+      print 'the window is ', window
 
    #st1 = filter.range_filter(st1,distance_range)
    #st2 = filter.range_filter(st2,distance_range)
@@ -93,8 +101,14 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
    sampling_rate = st1[0].stats.sampling_rate
    #st1.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=2)
    #st2.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=2)
-   st1.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=4,zerophase=True)
-   st2.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=4,zerophase=True)
+
+   if mode=='cross_cor':
+      st1.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=4,zerophase=True)
+      st2.filter('bandpass',freqmin=freqmin,freqmax=freqmax,corners=4,zerophase=True)
+   elif mode=='onset':
+      st1.filter('lowpass',freq=freqmin)
+      st2.filter('lowpass',freq=freqmin)
+
    #frequencies = filter_freqs(freqmin,freqmax,sampling_rate,plot=True,corners=2)
    
    #create lists for scattered data----------------------------------------------
@@ -114,6 +128,10 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
    if debug:
       print st1,st2
 
+   if mode=='onset':
+       st1.normalize()
+       st2.normalize()
+
    for i in range(0,len(st1)):
       dist = st1[i].stats.sac['gcarc']
 
@@ -123,10 +141,16 @@ def delays(background_model,plume_model,phase,freqmin,freqmax,h5py_file,delta,**
          y.append(st1[i].stats.sac['stla'])
          delays.append(0.0)
       else:
-         delay = cross_cor(st1[i],st2[i],phase=phase_list,window=window,taup_model=taup_model)
-         x.append(st1[i].stats.sac['stlo'])
-         y.append(st1[i].stats.sac['stla'])
-         delays.append(delay)
+         if mode=='cross_cor':
+            delay = cross_cor(st1[i],st2[i],mode=mode,phase=phase_list,window=window,taup_model=taup_model)
+            x.append(st1[i].stats.sac['stlo'])
+            y.append(st1[i].stats.sac['stla'])
+            delays.append(delay)
+         if mode=='onset':
+            delay = cross_cor(st1[i],st2[i],mode=mode,onset_threshold=0.10,phase=phase_list,window=window,taup_model=taup_model)
+            x.append(st1[i].stats.sac['stlo'])
+            y.append(st1[i].stats.sac['stla'])
+            delays.append(delay)
 
    lons = np.array(x)
    lats = np.array(y)
