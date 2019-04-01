@@ -450,10 +450,10 @@ def get_mt_from_gcmtid(gcmtid):
 
    f.close()
 
-events_file = open("GCMT_event_names")
+   #events_file = open("GCMT_event_names")
 
-for line in events_file.readlines():
-   gcmtid = line.strip().split()[0]
-   get_mt_from_gcmtid(gcmtid)
+   #for line in events_file.readlines():
+   #   gcmtid = line.strip().split()[0]
+   #   get_mt_from_gcmtid(gcmtid)
 
-events_file.close()
+   #events_file.close()
