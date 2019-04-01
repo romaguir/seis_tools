@@ -12,10 +12,10 @@ from scipy import interpolate
 from matplotlib import mlab
 import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
-#from obspy.core.util.geodetics import gps2DistAzimuth
-from obspy.core.util.geodetics import calcVincentyInverse
-#from obspy.core.util.geodetics import gps2dist_azimuth
-from obspy.core.util.geodetics import kilometer2degrees
+#from obspy.core.util.geodetics import calcVincentyInverse
+#from obspy.core.util.geodetics import kilometer2degrees
+from obspy.geodetics.base import kilometer2degrees
+from obspy.geodetics.base import calc_vincenty_inverse
 from seis_tools.ses3d.rotation import rotate_coordinates
 from scipy.signal import iirfilter, lfilter, freqz
 from obspy.taup import TauPyModel
