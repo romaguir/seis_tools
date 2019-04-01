@@ -417,3 +417,43 @@ def multiple_filter(tr,nbands,bandwidth,fmin,fmax,trim=True,**kwargs):
     plt.title(virt_src+' '+rec_name)
     plt.savefig('{}_{}_groupveloc.pdf'.format(virt_src,rec_name),format='pdf')
     plt.show()
+
+import numpy as np
+import urllib2
+import httplib
+
+def get_mt_from_gcmtid(gcmtid):
+
+   url = 'http://ds.iris.edu/spudservice/momenttensor/gcmtid/{}/cmtsolution'.format(gcmtid)
+   print url
+   try:
+      page = urllib2.urlopen(url).read()
+   except httplib.IncompleteRead, e:
+      page = e.partial
+
+   f = open('CMTSOLUTION.{}'.format(gcmtid),'w')
+   for line in page.split('\n'):
+
+       try:
+           var = line.split()[0]
+       except IndexError:
+           var = '\n'
+
+       print var
+
+       if var == 'time':
+           f.write('time shift:      0.0\n')
+       elif var == 'half':
+           f.write('half duration:   0.0\n')
+       else:
+           f.write(line+'\n')
+
+   f.close()
+
+events_file = open("GCMT_event_names")
+
+for line in events_file.readlines():
+   gcmtid = line.strip().split()[0]
+   get_mt_from_gcmtid(gcmtid)
+
+events_file.close()
